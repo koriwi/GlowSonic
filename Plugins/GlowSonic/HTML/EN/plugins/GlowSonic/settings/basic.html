@@ -30,18 +30,6 @@
 			<input type="text" class="stdedit" name="pref_api_version" id="pref_api_version" value="[% prefs.pref_api_version | html %]" size="10">
 		[% END %]
 
-		[% WRAPPER setting %]
-			<input type="hidden" name="pref_test_connection" id="pref_test_connection" value="0">
-			<button type="submit" class="stdbtn" name="saveSettings" value="test_connection" onclick="document.getElementById('pref_test_connection').value='1';var r=document.getElementById('glowsonic_test_result');if(r){r.style.color='#666';r.innerHTML='Testing...';}">[% SETTINGS_TEST_CONNECTION %]</button>
-			<span id="glowsonic_test_result" style="margin-left:10px;[% IF test_result == 'success' %]color:green[% ELSIF test_result == 'error' %]color:red[% ELSE %]color:#666[% END %]">
-				[% IF test_result == 'success' %]
-					&#10003; [% test_result_msg | html %]
-				[% ELSIF test_result == 'error' %]
-					&#10007; [% test_result_msg | html %]
-				[% END %]
-			</span>
-		[% END %]
-
 		[% END %]
 	[% END %]
 
