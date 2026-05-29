@@ -47,8 +47,8 @@ sub handler {
 	my ($class, $client, $params, $callback, @args) = @_;
 
 	# Handle "Test Connection" button (separate submit, not a save).
-	# Some LMS skins submit button values differently, so accept a few forms and
-	# make sure the base settings handler does not treat this as a save/redirect.
+	# The template uses saveSettings=test_connection only because LMS skins reliably
+	# submit that button. We remove saveSettings before the base handler can save.
 	if (_is_test_connection($params)) {
 		delete $params->{saveSettings};
 
