@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extension>
+	<id>a1b2c3d4-e5f6-7890-abcd-ef1234567890</id>
+	<name>PLUGIN_GLOWSONIC</name>
+	<module>Plugins::GlowSonic::Plugin</module>
+	<version>0.1.0</version>
+	<description>PLUGIN_GLOWSONIC_DESC</description>
+	<creator>GlowSonic contributors</creator>
+	<email></email>
+	<link></link>
+	<type>2</type>
+	<icon>plugins/GlowSonic/html/images/icon.svg</icon>
+	<optionsURL>plugins/GlowSonic/settings/basic.html</optionsURL>
+	<targetApplication>
+		<id>Lyrion</id>
+		<minVersion>9.0</minVersion>
+		<maxVersion>*</maxVersion>
+	</targetApplication>
+</extension>

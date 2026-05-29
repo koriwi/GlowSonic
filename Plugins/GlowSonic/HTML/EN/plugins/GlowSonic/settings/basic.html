@@ -1,0 +1,103 @@
+[% PROCESS settings/header.html %]
+
+	[% WRAPPER settingSection %]
+		[% WRAPPER settingGroup title=SETTINGS_SERVER %]
+
+		[% WRAPPER setting title=SETTINGS_SERVER_URL desc=SETTINGS_SERVER_URL_DESC %]
+			<input type="text" class="stdedit" name="pref_server_url" id="pref_server_url" value="[% prefs.pref_server_url | html %]" size="50" placeholder="https://music.example.com">
+		[% END %]
+
+		<div class="info-banner" style="background:#856404;padding:12px;margin:10px 0;font-size:13px;color:#ffffff;">
+			<strong>&#9888; Tip:</strong> Use the LAN-accessible address of your server, not the internal Docker/VM IP (e.g., 172.x.x.x). If cover art doesn't load on other devices, check that you're using the correct external address.
+		</div>
+
+		[% WRAPPER setting title=SETTINGS_USERNAME %]
+			<input type="text" class="stdedit" name="pref_username" id="pref_username" value="[% prefs.pref_username | html %]" size="30">
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_PASSWORD %]
+			<input type="password" class="stdedit" name="pref_password" id="pref_password" value="[% prefs.pref_password | html %]" size="30">
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_AUTH_TYPE %]
+			<select class="stdedit" name="pref_auth_type" id="pref_auth_type">
+				<option value="token" [% auth_type_token %]>[% SETTINGS_AUTH_TOKEN %]</option>
+				<option value="password" [% auth_type_password %]>[% SETTINGS_AUTH_PASSWORD %]</option>
+			</select>
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_API_VERSION %]
+			<input type="text" class="stdedit" name="pref_api_version" id="pref_api_version" value="[% prefs.pref_api_version | html %]" size="10">
+		[% END %]
+
+		[% WRAPPER setting %]
+			<input type="submit" class="stdbtn" name="test_connection" value="[% SETTINGS_TEST_CONNECTION %]">
+			[% IF test_result == 'success' %]
+				<span style="margin-left:10px;color:green">&#10003; [% test_result_msg | html %]</span>
+			[% ELSIF test_result == 'error' %]
+				<span style="margin-left:10px;color:red">&#10007; [% test_result_msg | html %]</span>
+			[% END %]
+		[% END %]
+
+		[% END %]
+	[% END %]
+
+	[% WRAPPER settingSection %]
+		[% WRAPPER settingGroup title=SETTINGS_CACHING %]
+
+		[% WRAPPER setting title=SETTINGS_CACHE_TTL desc=SETTINGS_LISTS %]
+			<input type="text" class="stdedit" name="pref_cache_ttl_lists" id="pref_cache_ttl_lists" value="[% prefs.pref_cache_ttl_lists | html %]" size="10">&nbsp;[% SETTINGS_SECONDS %]
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_CACHE_TTL desc=SETTINGS_MUSIC %]
+			<input type="text" class="stdedit" name="pref_cache_ttl_music" id="pref_cache_ttl_music" value="[% prefs.pref_cache_ttl_music | html %]" size="10">&nbsp;[% SETTINGS_SECONDS %]
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_CACHE_TTL desc=SETTINGS_IMAGES %]
+			<input type="text" class="stdedit" name="pref_cache_ttl_images" id="pref_cache_ttl_images" value="[% prefs.pref_cache_ttl_images | html %]" size="10">&nbsp;[% SETTINGS_SECONDS %]
+		[% END %]
+
+		[% END %]
+	[% END %]
+
+	[% WRAPPER settingSection %]
+		[% WRAPPER settingGroup title=SETTINGS_DISPLAY %]
+
+		[% WRAPPER setting title=SETTINGS_ARTWORK_SIZE %]
+			<input type="text" class="stdedit" name="pref_artwork_size" id="pref_artwork_size" value="[% prefs.pref_artwork_size | html %]" size="10">&nbsp;[% SETTINGS_PIXELS %]
+		[% END %]
+
+		[% END %]
+	[% END %]
+
+	[% WRAPPER settingSection %]
+		[% WRAPPER settingGroup title=SETTINGS_TRANSCODING %]
+
+		[% WRAPPER setting title=SETTINGS_TRANSCODE_BITRATE %]
+			<input type="text" class="stdedit" name="pref_transcode_bitrate" id="pref_transcode_bitrate" value="[% prefs.pref_transcode_bitrate | html %]" size="10">&nbsp;0 = original
+		[% END %]
+
+		[% WRAPPER setting title=SETTINGS_TRANSCODE_FORMAT %]
+			<select class="stdedit" name="pref_transcode_format" id="pref_transcode_format">
+				<option value="" [% transcode_orig_sel %]>Original</option>
+				<option value="mp3" [% transcode_mp3_sel %]>MP3</option>
+				<option value="opus" [% transcode_opus_sel %]>Opus</option>
+				<option value="ogg" [% transcode_ogg_sel %]>OGG</option>
+				<option value="aac" [% transcode_aac_sel %]>AAC</option>
+			</select>
+		[% END %]
+
+		[% END %]
+	[% END %]
+
+	[% WRAPPER settingSection %]
+		[% WRAPPER settingGroup title=SETTINGS_PLAYBACK %]
+
+		[% WRAPPER setting title=GLOWSONIC_SCROBBLE %]
+			<input type="checkbox" class="stdedit" name="pref_scrobble_enabled" id="pref_scrobble_enabled" value="1" [% scrobble_enabled %]>
+		[% END %]
+
+		[% END %]
+	[% END %]
+
+[% PROCESS settings/footer.html %]

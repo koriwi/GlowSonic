@@ -1,0 +1,209 @@
+# Strings for GlowSonic plugin
+# Format: TOKEN\tEN\tEnglish text
+
+PLUGIN_GLOWSONIC
+	EN	GlowSonic
+
+PLUGIN_GLOWSONIC_DESC
+	EN	Browse and play music from Subsonic/OpenSubsonic servers (Navidrome, Airsonic, Gonic, etc.)
+
+# Menu labels
+GLOWSONIC_MENU_ARTISTS
+	EN	Artists
+
+GLOWSONIC_MENU_ALBUMS
+	EN	Albums
+
+GLOWSONIC_MENU_GENRES
+	EN	Genres
+
+GLOWSONIC_MENU_PLAYLISTS
+	EN	Playlists
+
+GLOWSONIC_MENU_RANDOM
+	EN	Random Albums
+
+GLOWSONIC_MENU_NEWEST
+	EN	Newest Albums
+
+GLOWSONIC_MENU_RECENT
+	EN	Recently Played
+
+GLOWSONIC_MENU_FREQUENT
+	EN	Most Played
+
+GLOWSONIC_MENU_HIGHEST
+	EN	Highest Rated
+
+GLOWSONIC_MENU_SEARCH
+	EN	Search
+
+GLOWSONIC_MENU_STARRED
+	EN	Starred
+
+GLOWSONIC_MENU_PODCASTS
+	EN	Podcasts
+
+GLOWSONIC_MENU_ARTIST_RADIO
+	EN	Artist Radio
+
+# Settings
+GLOWSONIC_SETTINGS
+	EN	GlowSonic Settings
+
+GLOWSONIC_SETTINGS_SERVER
+	EN	Server
+
+GLOWSONIC_SETTINGS_SERVER_URL
+	EN	Server URL
+
+GLOWSONIC_SETTINGS_SERVER_URL_DESC
+	EN	Full URL to your Subsonic server (e.g., https://music.example.com). Important: Use the LAN-accessible address — NOT the internal Docker/VM IP (e.g., 172.x.x.x). Cover art and other content won't load from other devices if you use the wrong address.
+
+GLOWSONIC_SETTINGS_USERNAME
+	EN	Username
+
+GLOWSONIC_SETTINGS_PASSWORD
+	EN	Password
+
+GLOWSONIC_SETTINGS_AUTH_TYPE
+	EN	Authentication
+
+GLOWSONIC_SETTINGS_AUTH_TOKEN
+	EN	Token (API 1.13.0+)
+
+GLOWSONIC_SETTINGS_AUTH_PASSWORD
+	EN	Password (legacy)
+
+GLOWSONIC_SETTINGS_API_VERSION
+	EN	API Version
+
+GLOWSONIC_SETTINGS_CACHE_TTL
+	EN	Cache duration (seconds)
+
+GLOWSONIC_SETTINGS_ARTWORK_SIZE
+	EN	Cover art size
+
+GLOWSONIC_SETTINGS_TRANSCODE_BITRATE
+	EN	Transcode bitrate (kbps, 0 = original)
+
+GLOWSONIC_SETTINGS_TRANSCODE_FORMAT
+	EN	Transcode format
+
+GLOWSONIC_SETTINGS_TEST_CONNECTION
+	EN	Test Connection
+
+GLOWSONIC_SETTINGS_TEST_SUCCESS
+	EN	Connection successful! Server: %s, Version: %s
+
+GLOWSONIC_SETTINGS_TEST_FAIL
+	EN	Connection failed: %s
+
+# Error messages
+GLOWSONIC_ERROR_NETWORK
+	EN	Network error: %s
+
+GLOWSONIC_ERROR_AUTH
+	EN	Authentication failed. Check your username and password.
+
+GLOWSONIC_ERROR_SERVER
+	EN	Server error (HTTP %s)
+
+GLOWSONIC_ERROR_API
+	EN	API error: %s
+
+GLOWSONIC_ERROR_EMPTY
+	EN	No results found
+
+GLOWSONIC_ERROR_LOADING
+	EN	Error loading content
+
+GLOWSONIC_ERROR_CONFIG
+	EN	Plugin not configured. Please set your server details in Settings.
+
+GLOWSONIC_ERROR_STREAM
+	EN	Unable to stream track: %s
+
+# Track info / context menu
+GLOWSONIC_MORE
+	EN	More on GlowSonic
+
+GLOWSONIC_SEARCH_ARTIST
+	EN	Search this artist
+
+GLOWSONIC_SEARCH_ALBUM
+	EN	Search this album
+
+GLOWSONIC_SEARCH_TITLE
+	EN	Search this title
+
+# Favorites
+GLOWSONIC_FAVORITES
+	EN	GlowSonic Favorites
+
+# Generic
+GLOWSONIC_LOADING
+	EN	Loading...
+
+GLOWSONIC_PLAYING
+	EN	Now Playing
+
+GLOWSONIC_PREVIOUS_PAGE
+	EN	Previous page
+
+GLOWSONIC_NEXT_PAGE
+	EN	Next page
+
+GLOWSONIC_BY
+	EN	by
+
+GLOWSONIC_TRACKS
+	EN	tracks
+
+GLOWSONIC_NO_TRACKS
+	EN	No tracks
+
+GLOWSONIC_SONG
+	EN	Song
+
+GLOWSONIC_ARTIST
+	EN	Artist
+
+GLOWSONIC_ALBUM
+	EN	Album
+
+GLOWSONIC_GENRE
+	EN	Genre
+
+GLOWSONIC_PLAYLIST
+	EN	Playlist
+
+GLOWSONIC_YEAR
+	EN	Year
+
+GLOWSONIC_DURATION
+	EN	Duration
+
+# Scrobbling
+GLOWSONIC_SCROBBLE
+	EN	Scrobbling enabled
+
+# Playlist items
+GLOWSONIC_PLAY_ALL
+	EN	Play All
+
+GLOWSONIC_ADD_TO_QUEUE
+	EN	Add to Queue
+
+GLOWSONIC_PLAY_NEXT
+	EN	Play Next
+
+# Star / Rating
+GLOWSONIC_STAR
+	EN	Star
+
+GLOWSONIC_UNSTAR
+	EN	Unstar
+
+GLOWSONIC_SET_RATING
+	EN	Set Rating

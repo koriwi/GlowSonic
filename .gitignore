@@ -1,0 +1,29 @@
+# Local agent/tooling
+.pi/
+
+# Local config and secrets
+.env
+.env.*
+*.local
+*.secret
+secrets.*
+
+# Bundled/generated dependencies
+Plugins/GlowSonic/lib/
+
+# LMS runtime data
+Cache/
+Logs/
+prefs/
+*.db
+*.db-*
+*.log
+
+# Editor/OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
