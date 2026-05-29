@@ -140,6 +140,7 @@ sub _is_test_connection {
 	return 1 if $params->{pref_test_connection};
 	return 1 if ($params->{button} || '') eq 'test_connection';
 	return 1 if ($params->{action} || '') eq 'test_connection';
+	return 1 if ($params->{saveSettings} || '') eq 'test_connection';
 	return 0;
 }
 
