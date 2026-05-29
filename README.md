@@ -18,3 +18,11 @@ Configure the server URL, username, and password from the LMS plugin settings pa
 ## Status
 
 Work in progress. Tested primarily with Navidrome and LMS 9.x.
+
+## Disclaimer
+
+This project is vibecoded: built quickly, tested pragmatically, and likely to have rough edges. Review changes before running it on an important LMS setup.
+
+## License
+
+AGPL-3.0-only. See `LICENSE`.
