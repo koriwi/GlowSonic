@@ -31,7 +31,8 @@
 		[% END %]
 
 		[% WRAPPER setting %]
-			<input type="submit" class="stdbtn" name="test_connection" value="[% SETTINGS_TEST_CONNECTION %]">
+			<input type="hidden" name="pref_test_connection" id="pref_test_connection" value="0">
+			<input type="submit" class="stdbtn" name="test_connection" value="[% SETTINGS_TEST_CONNECTION %]" onclick="document.getElementById('pref_test_connection').value='1';">
 			[% IF test_result == 'success' %]
 				<span style="margin-left:10px;color:green">&#10003; [% test_result_msg | html %]</span>
 			[% ELSIF test_result == 'error' %]

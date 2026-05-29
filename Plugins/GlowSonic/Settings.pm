@@ -14,6 +14,9 @@ use Slim::Utils::Strings qw(string cstring);
 my $log   = Slim::Utils::Log::logger('plugin.glowsonic');
 my $prefs = preferences('plugin.glowsonic');
 
+my $last_test_result;
+my $last_test_result_msg;
+
 # ---------------------------------------------------------------------------
 # Settings page name (displayed in LMS Settings UI)
 # ---------------------------------------------------------------------------
@@ -43,11 +46,15 @@ sub prefs {
 sub handler {
 	my ($class, $client, $params, $callback, @args) = @_;
 
-	# Handle "Test Connection" button (separate submit, not a save)
-	if ($params->{test_connection}) {
+	# Handle "Test Connection" button (separate submit, not a save).
+	# Some LMS skins submit button values differently, so accept a few forms and
+	# make sure the base settings handler does not treat this as a save/redirect.
+	if (_is_test_connection($params)) {
+		delete $params->{saveSettings};
+
 		my $result = _do_test_connection($params);
-		$params->{test_result}     = $result->{success} ? 'success' : 'error';
-		$params->{test_result_msg} = $result->{message};
+		$last_test_result     = $params->{test_result}     = $result->{success} ? 'success' : 'error';
+		$last_test_result_msg = $params->{test_result_msg} = $result->{message};
 	}
 
 	# Handle saveSettings (SUPER handles the actual saving via prefs() above)
@@ -103,6 +110,14 @@ sub beforeRender {
 	$params->{SETTINGS_TRANSCODE_FORMAT}  = cstring($client, 'GLOWSONIC_SETTINGS_TRANSCODE_FORMAT');
 	$params->{SETTINGS_TEST_CONNECTION}   = cstring($client, 'GLOWSONIC_SETTINGS_TEST_CONNECTION');
 
+	# Test connection result from handler().  Keep this here as well as in
+	# handler(), because Slim::Web::Settings rebuilds parts of the template params.
+	if ($last_test_result) {
+		$params->{test_result}     = $last_test_result;
+		$params->{test_result_msg} = $last_test_result_msg;
+		$last_test_result = $last_test_result_msg = undef;
+	}
+
 	# Generic LMS strings
 	$params->{SETTINGS_CACHING}      = string('SETTINGS_CACHING') || 'Caching';
 	$params->{SETTINGS_LISTS}        = string('SETTINGS_LISTS') || 'Lists';
@@ -114,6 +129,18 @@ sub beforeRender {
 	$params->{SETTINGS_TRANSCODING}  = string('SETTINGS_TRANSCODING') || 'Transcoding';
 	$params->{SETTINGS_PLAYBACK}     = string('SETTINGS_PLAYBACK') || 'Playback';
 	$params->{GLOWSONIC_SCROBBLE}    = cstring($client, 'GLOWSONIC_SCROBBLE') || 'Scrobbling enabled';
+}
+
+# ---------------------------------------------------------------------------
+# Detect test connection submissions across LMS skins/browsers.
+# ---------------------------------------------------------------------------
+sub _is_test_connection {
+	my ($params) = @_;
+	return 1 if $params->{test_connection};
+	return 1 if $params->{pref_test_connection};
+	return 1 if ($params->{button} || '') eq 'test_connection';
+	return 1 if ($params->{action} || '') eq 'test_connection';
+	return 0;
 }
 
 # ---------------------------------------------------------------------------
