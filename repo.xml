@@ -5,12 +5,12 @@
 	</details>
 
 	<plugins>
-		<plugin name="GlowSonic" version="0.2.0" minTarget="9.0" maxTarget="9.*">
+		<plugin name="GlowSonic" version="0.2.1" minTarget="9.0" maxTarget="9.*">
 			<title lang="EN">GlowSonic</title>
 			<desc lang="EN">Subsonic/OpenSubsonic client for Lyrion Music Server.</desc>
-			<url>https://github.com/koriwi/GlowSonic/releases/download/v0.2.0/GlowSonic-0.2.0.zip</url>
+			<url>https://github.com/koriwi/GlowSonic/releases/download/v0.2.1/GlowSonic-0.2.1.zip</url>
 			<creator>GlowSonic contributors</creator>
-			<sha>c69adcbf3f0ce58dca397ef405fedd702b3ee19a</sha>
+			<sha></sha>
 			<link>https://github.com/koriwi/GlowSonic</link>
 		</plugin>
 	</plugins>
