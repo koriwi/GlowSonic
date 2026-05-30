@@ -27,6 +27,9 @@ perl -0pi -e "s#(<plugin name=\"GlowSonic\" version=\")[^\"]+(\" minTarget=)#\${
 perl -0pi -e "s#<url>[^<]+</url>#<url>${URL}</url>#" \
   repo.xml
 
+perl -0pi -e 's#<sha>[^<]*</sha>#<sha></sha>#' \
+  repo.xml
+
 echo "Updated GlowSonic to ${VERSION}"
 echo
 echo "Next steps:"
@@ -36,3 +39,5 @@ echo "  git commit -m \"Bump version to ${VERSION}\""
 echo "  git push origin master"
 echo "  git tag v${VERSION}"
 echo "  git push origin v${VERSION}"
+echo
+echo "The release workflow will build the zip and update repo.xml with its SHA."

@@ -32,7 +32,7 @@ git tag v0.1.1
 git push origin v0.1.1
 ```
 
-The GitHub Action builds the LMS zip and attaches it to the matching release.
+The GitHub Action builds the LMS zip, attaches it to the matching release, and updates `repo.xml` with the zip SHA.
 
 ## Status
 

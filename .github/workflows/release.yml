@@ -53,6 +53,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
           echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
 
       - name: Build LMS plugin zip
         shell: bash
@@ -60,9 +61,8 @@ jobs:
           set -euo pipefail
           git archive \
             --format=zip \
-            --prefix=GlowSonic/ \
             -o "${{ steps.meta.outputs.zip }}" \
-            HEAD:GlowSonic
+            HEAD GlowSonic
 
       - name: Ensure release tag exists
         if: github.event_name == 'workflow_dispatch'
@@ -90,3 +90,28 @@ jobs:
               --title "GlowSonic ${{ steps.meta.outputs.version }}" \
               --notes "GlowSonic ${{ steps.meta.outputs.version }}"
           fi
+
+      - name: Update repo.xml SHA on master
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA=$(sha1sum "${{ steps.meta.outputs.zip }}" | awk '{print $1}')
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin master
+          git checkout master
+
+          perl -0pi -e "s#(<plugin name=\"GlowSonic\" version=\")[^\"]+(\" minTarget=)#\${1}${{ steps.meta.outputs.version }}\${2}#" repo.xml
+          perl -0pi -e "s#<url>[^<]+</url>#<url>${{ steps.meta.outputs.url }}</url>#" repo.xml
+
+          if grep -q '<sha>' repo.xml; then
+            perl -0pi -e "s#<sha>[^<]*</sha>#<sha>${SHA}</sha>#" repo.xml
+          else
+            perl -0pi -e "s#(\s*</plugin>)#\n\t\t\t<sha>${SHA}</sha>\1#" repo.xml
+          fi
+
+          git add repo.xml
+          git commit -m "Update repo metadata for ${{ steps.meta.outputs.tag }}" || exit 0
+          git push origin master
