@@ -7,7 +7,7 @@
 	<description>PLUGIN_GLOWSONIC_DESC</description>
 	<creator>GlowSonic contributors</creator>
 	<email></email>
-	<link></link>
+	<link>https://github.com/koriwi/GlowSonic</link>
 	<type>2</type>
 	<icon>plugins/GlowSonic/html/images/icon.svg</icon>
 	<optionsURL>plugins/GlowSonic/settings/basic.html</optionsURL>

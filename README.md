@@ -11,7 +11,13 @@ GlowSonic is a Lyrion Music Server plugin for browsing and playing music from Su
 
 ## Install
 
-Copy `Plugins/GlowSonic` into your LMS `Plugins` directory and restart LMS.
+Add this plugin repository in LMS:
+
+```text
+https://raw.githubusercontent.com/koriwi/GlowSonic/master/repo.xml
+```
+
+Or copy `Plugins/GlowSonic` into your LMS `Plugins` directory and restart LMS.
 
 Configure the server URL, username, and password from the LMS plugin settings page.
 

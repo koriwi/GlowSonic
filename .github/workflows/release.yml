@@ -1,0 +1,92 @@
+name: Release LMS plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read plugin metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          VERSION=$(perl -ne 'print "$1\n" if /<version>([^<]+)<\/version>/' Plugins/GlowSonic/install.xml)
+          ZIP="GlowSonic-${VERSION}.zip"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${ZIP}"
+
+          if [[ -z "${VERSION}" ]]; then
+            echo "Could not read version from Plugins/GlowSonic/install.xml" >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${VERSION}" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match install.xml version ${VERSION}" >&2
+            exit 1
+          fi
+
+          if ! grep -q "version=\"${VERSION}\"" repo.xml; then
+            echo "repo.xml plugin version does not match ${VERSION}" >&2
+            exit 1
+          fi
+
+          if ! grep -q "${URL}" repo.xml; then
+            echo "repo.xml does not reference expected release asset:" >&2
+            echo "  ${URL}" >&2
+            exit 1
+          fi
+
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "zip=${ZIP}" >> "$GITHUB_OUTPUT"
+
+      - name: Build LMS plugin zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          git archive \
+            --format=zip \
+            --prefix=Plugins/GlowSonic/ \
+            -o "${{ steps.meta.outputs.zip }}" \
+            HEAD:Plugins/GlowSonic
+
+      - name: Ensure release tag exists
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! git rev-parse "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+            git tag "${{ steps.meta.outputs.tag }}"
+            git push origin "${{ steps.meta.outputs.tag }}"
+          fi
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+          ZIP="${{ steps.meta.outputs.zip }}"
+
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" "${ZIP}" --clobber
+          else
+            gh release create "${TAG}" "${ZIP}" \
+              --title "GlowSonic ${{ steps.meta.outputs.version }}" \
+              --notes "GlowSonic ${{ steps.meta.outputs.version }}"
+          fi

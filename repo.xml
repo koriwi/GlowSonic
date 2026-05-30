@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<extensions>
+	<details>
+		<title lang="EN">GlowSonic Plugin Repository</title>
+	</details>
+
+	<plugins>
+		<plugin name="GlowSonic" version="0.1.0" minTarget="9.0" maxTarget="*">
+			<title lang="EN">GlowSonic</title>
+			<desc lang="EN">Subsonic/OpenSubsonic client for Lyrion Music Server.</desc>
+			<creator>GlowSonic contributors</creator>
+			<url>https://github.com/koriwi/GlowSonic/releases/download/v0.1.0/GlowSonic-0.1.0.zip</url>
+		</plugin>
+	</plugins>
+</extensions>
