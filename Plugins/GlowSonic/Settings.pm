@@ -31,7 +31,6 @@ sub page {
 # ---------------------------------------------------------------------------
 sub prefs {
 	return ($prefs, qw(server_url username password auth_type api_version
-		cache_ttl_lists cache_ttl_music cache_ttl_images
 		artwork_size transcode_bitrate transcode_format scrobble_enabled));
 }
 
@@ -89,17 +88,11 @@ sub beforeRender {
 	$params->{SETTINGS_AUTH_TOKEN}        = cstring($client, 'GLOWSONIC_SETTINGS_AUTH_TOKEN');
 	$params->{SETTINGS_AUTH_PASSWORD}     = cstring($client, 'GLOWSONIC_SETTINGS_AUTH_PASSWORD');
 	$params->{SETTINGS_API_VERSION}       = cstring($client, 'GLOWSONIC_SETTINGS_API_VERSION');
-	$params->{SETTINGS_CACHE_TTL}         = cstring($client, 'GLOWSONIC_SETTINGS_CACHE_TTL');
 	$params->{SETTINGS_ARTWORK_SIZE}      = cstring($client, 'GLOWSONIC_SETTINGS_ARTWORK_SIZE');
 	$params->{SETTINGS_TRANSCODE_BITRATE} = cstring($client, 'GLOWSONIC_SETTINGS_TRANSCODE_BITRATE');
 	$params->{SETTINGS_TRANSCODE_FORMAT}  = cstring($client, 'GLOWSONIC_SETTINGS_TRANSCODE_FORMAT');
 
 	# Generic LMS strings
-	$params->{SETTINGS_CACHING}      = string('SETTINGS_CACHING') || 'Caching';
-	$params->{SETTINGS_LISTS}        = string('SETTINGS_LISTS') || 'Lists';
-	$params->{SETTINGS_MUSIC}        = string('SETTINGS_MUSIC') || 'Music Data';
-	$params->{SETTINGS_IMAGES}       = string('SETTINGS_IMAGES') || 'Images';
-	$params->{SETTINGS_SECONDS}      = string('SETTINGS_SECONDS') || 'seconds';
 	$params->{SETTINGS_DISPLAY}      = string('SETTINGS_DISPLAY') || 'Display';
 	$params->{SETTINGS_PIXELS}       = string('SETTINGS_PIXELS') || 'pixels';
 	$params->{SETTINGS_TRANSCODING}  = string('SETTINGS_TRANSCODING') || 'Transcoding';
