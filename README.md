@@ -17,7 +17,7 @@ Add this plugin repository in LMS:
 https://raw.githubusercontent.com/koriwi/GlowSonic/master/repo.xml
 ```
 
-Or copy `Plugins/GlowSonic` into your LMS `Plugins` directory and restart LMS.
+Or copy `GlowSonic` into your LMS `Plugins` directory and restart LMS.
 
 Configure the server URL, username, and password from the LMS plugin settings page.
 
@@ -25,7 +25,7 @@ Configure the server URL, username, and password from the LMS plugin settings pa
 
 ```bash
 scripts/bump-version.sh 0.1.1
-git add Plugins/GlowSonic/install.xml repo.xml
+git add GlowSonic/install.xml repo.xml
 git commit -m "Bump version to 0.1.1"
 git push origin master
 git tag v0.1.1

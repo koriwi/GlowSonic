@@ -25,12 +25,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION=$(perl -ne 'print "$1\n" if /<version>([^<]+)<\/version>/' Plugins/GlowSonic/install.xml)
+          VERSION=$(perl -ne 'print "$1\n" if /<version>([^<]+)<\/version>/' GlowSonic/install.xml)
           ZIP="GlowSonic-${VERSION}.zip"
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/${ZIP}"
 
           if [[ -z "${VERSION}" ]]; then
-            echo "Could not read version from Plugins/GlowSonic/install.xml" >&2
+            echo "Could not read version from GlowSonic/install.xml" >&2
             exit 1
           fi
 
@@ -60,9 +60,9 @@ jobs:
           set -euo pipefail
           git archive \
             --format=zip \
-            --prefix=Plugins/GlowSonic/ \
+            --prefix=GlowSonic/ \
             -o "${{ steps.meta.outputs.zip }}" \
-            HEAD:Plugins/GlowSonic
+            HEAD:GlowSonic
 
       - name: Ensure release tag exists
         if: github.event_name == 'workflow_dispatch'

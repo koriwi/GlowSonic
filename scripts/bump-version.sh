@@ -19,7 +19,7 @@ ZIP="GlowSonic-${VERSION}.zip"
 URL="https://github.com/koriwi/GlowSonic/releases/download/v${VERSION}/${ZIP}"
 
 perl -0pi -e "s#<version>[^<]+</version>#<version>${VERSION}</version>#" \
-  Plugins/GlowSonic/install.xml
+  GlowSonic/install.xml
 
 perl -0pi -e "s#(<plugin name=\"GlowSonic\" version=\")[^\"]+(\" minTarget=)#\${1}${VERSION}\${2}#" \
   repo.xml
@@ -31,7 +31,7 @@ echo "Updated GlowSonic to ${VERSION}"
 echo
 echo "Next steps:"
 echo "  git diff"
-echo "  git add Plugins/GlowSonic/install.xml repo.xml"
+echo "  git add GlowSonic/install.xml repo.xml"
 echo "  git commit -m \"Bump version to ${VERSION}\""
 echo "  git push origin master"
 echo "  git tag v${VERSION}"

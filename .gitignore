@@ -9,7 +9,7 @@
 secrets.*
 
 # Bundled/generated dependencies
-Plugins/GlowSonic/lib/
+GlowSonic/lib/
 
 # LMS runtime data
 Cache/
