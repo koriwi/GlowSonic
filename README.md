@@ -21,6 +21,19 @@ Or copy `Plugins/GlowSonic` into your LMS `Plugins` directory and restart LMS.
 
 Configure the server URL, username, and password from the LMS plugin settings page.
 
+## Release
+
+```bash
+scripts/bump-version.sh 0.1.1
+git add Plugins/GlowSonic/install.xml repo.xml
+git commit -m "Bump version to 0.1.1"
+git push origin master
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The GitHub Action builds the LMS zip and attaches it to the matching release.
+
 ## Status
 
 Work in progress. Tested primarily with Navidrome and LMS 9.x.
