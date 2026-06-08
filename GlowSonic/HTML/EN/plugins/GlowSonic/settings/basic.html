@@ -16,7 +16,7 @@
 		[% END %]
 
 		[% WRAPPER setting title=SETTINGS_PASSWORD %]
-			<input type="password" class="stdedit" name="pref_password" id="pref_password" value="[% prefs.pref_password | html %]" size="30">
+			<input type="password" class="stdedit" name="pref_password" id="pref_password" value="[% IF prefs.pref_password %]********[% END %]" size="30" autocomplete="new-password">
 		[% END %]
 
 		[% WRAPPER setting title=SETTINGS_AUTH_TYPE %]

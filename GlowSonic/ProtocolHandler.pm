@@ -8,9 +8,11 @@ package Plugins::GlowSonic::ProtocolHandler;
 # The metadata methods (getMetadataFor, getFormatForURL) provide track info.
 #
 # glows:// URL format:
-#   glows://<track_id>?server=...&apiversion=...&user=...&pass=...
-#     &title=...&artist=...&album=...&coverart=...&duration=...&bitrate=...
-#     &suffix=...&contentType=...&maxBitRate=...&format=...
+#   glows://<track_id>?title=...&artist=...&album=...&coverart=...
+#     &duration=...&bitrate=...&suffix=...&contentType=...
+#     &maxBitRate=...&format=...
+# Credentials are intentionally not stored in playable URLs; current LMS prefs
+# are used when the stream is opened.
 
 use strict;
 use warnings;
@@ -62,11 +64,16 @@ sub new {
 			my ($track_id) = $class->parse_url($url);
 			my $delegate = $class->_delegate_handler_for_url($stream_url);
 
+			unless ($stream_url && $delegate) {
+				$log->error("GlowSonic new(): cannot resolve stream for track " . ($track_id || 'unknown'));
+				return undef;
+			}
+
 			$http_args{url} = $stream_url;
 			eval { $http_args{song}->streamUrl($stream_url); } if $http_args{song};
 
 			$log->debug("GlowSonic new(): track=$track_id stream=" . $class->_redact_url($stream_url) . " delegate=" . ($delegate || 'undef')) if $log->is_debug;
-			my $sock = $delegate ? $delegate->new(\%http_args) : undef;
+			my $sock = $delegate->new(\%http_args);
 			$log->debug("GlowSonic new(): delegate returned " . ($sock ? ref($sock) : 'undef')) if $log->is_debug;
 
 			return $sock;
@@ -82,10 +89,14 @@ sub new {
 		my $stream_url = $class->_stream_url_from_glows($url);
 		my ($track_id) = $class->parse_url($url);
 		my $delegate = $class->_delegate_handler_for_url($stream_url);
+		unless ($stream_url && $delegate) {
+			$log->error("GlowSonic new(): cannot resolve raw stream for track " . ($track_id || 'unknown'));
+			return undef;
+		}
 		$log->debug("GlowSonic new(): raw track=$track_id stream=" . $class->_redact_url($stream_url) . " delegate=" . ($delegate || 'undef')) if $log->is_debug;
 
 		$args[-1] = $stream_url;
-		my $sock = $delegate ? $delegate->new(@args) : undef;
+		my $sock = $delegate->new(@args);
 		$log->debug("GlowSonic new(): raw delegate returned " . ($sock ? ref($sock) : 'undef')) if $log->is_debug;
 		return $sock;
 	}
@@ -120,24 +131,15 @@ sub _stream_url_from_glows {
 	my ($class, $url) = @_;
 
 	my ($track_id, $params) = $class->parse_url($url);
+	return undef unless defined $track_id && length $track_id;
 
-	my $server_url = $params->{server} || '';
-	$server_url =~ s{/+$}{};
+	my $api = $class->_api_client_from_prefs($params);
+	return undef unless $api && $api->is_configured;
 
-	my $stream_url = "$server_url/rest/stream?"
-		. 'id=' . URI::Escape::uri_escape_utf8($track_id)
-		. '&v=' . URI::Escape::uri_escape_utf8($params->{apiversion} || '1.16.1')
-		. '&c=GlowSonic'
-		. '&u=' . URI::Escape::uri_escape_utf8($params->{user} || '')
-		. '&p=' . URI::Escape::uri_escape_utf8($params->{pass} || '');
-
-	$stream_url .= '&maxBitRate=' . URI::Escape::uri_escape_utf8($params->{maxBitRate})
-		if $params->{maxBitRate};
-
-	$stream_url .= '&format=' . URI::Escape::uri_escape_utf8($params->{format})
-		if $params->{format};
-
-	return $stream_url;
+	return $api->stream_http_url($track_id,
+		maxBitRate => $params->{maxBitRate},
+		format     => $params->{format},
+	);
 }
 
 # ---------------------------------------------------------------------------
@@ -158,17 +160,20 @@ sub explodePlaylist {
 	my ($container_type, $container_id) = $class->_parse_container_url($url);
 	unless ($container_type && $container_id) {
 		$log->error("GlowSonic explodePlaylist(): unsupported URL $url");
-		return $cb->({ type => 'opml', title => 'GlowSonic', items => [] });
+		return $cb->($class->_error_opml('Unsupported GlowSonic favorite URL'));
 	}
 
 	my $api = $class->_api_client_from_prefs;
+	unless ($api && $api->is_configured) {
+		return $cb->($class->_error_opml('GlowSonic is not configured'));
+	}
 	my $success_cb = sub {
-		my $container = shift || {};
+		my $container = $api->as_hash(shift);
 		my $entries = $container_type eq 'album'
-			? ($container->{song}  || [])
-			: ($container->{entry} || []);
+			? $api->as_array($container->{song})
+			: $api->as_array($container->{entry});
 
-		my @items = map { $class->_audio_item_from_entry($api, $_, $container) } @$entries;
+		my @items = grep { $_ } map { $class->_audio_item_from_entry($api, $_, $container) } @$entries;
 
 		$log->debug("GlowSonic explodePlaylist(): $container_type/$container_id returned " . scalar(@items) . " tracks") if $log->is_debug;
 
@@ -181,8 +186,9 @@ sub explodePlaylist {
 
 	my $error_cb = sub {
 		my ($error) = @_;
-		$log->error("GlowSonic explodePlaylist(): failed loading $container_type/$container_id: " . ($error || 'unknown error'));
-		$cb->({ type => 'opml', title => 'GlowSonic', items => [] });
+		$error ||= 'unknown error';
+		$log->error("GlowSonic explodePlaylist(): failed loading $container_type/$container_id: $error");
+		$cb->($class->_error_opml("Could not load GlowSonic playlist: $error"));
 	};
 
 	if ($container_type eq 'album') {
@@ -202,17 +208,33 @@ sub _parse_container_url {
 }
 
 sub _api_client_from_prefs {
+	my ($class, $legacy_params) = @_;
+	$legacy_params ||= {};
+
+	# Legacy glows:// URLs from older versions may still contain connection
+	# params. Prefer current prefs, but keep them as a fallback for old queues.
 	return Plugins::GlowSonic::API::Async->new(
-		server_url  => $prefs->get('server_url')  || '',
-		username    => $prefs->get('username')    || '',
-		password    => $prefs->get('password')    || '',
-		api_version => $prefs->get('api_version') || '1.16.1',
+		server_url  => $prefs->get('server_url')  || $legacy_params->{server}     || '',
+		username    => $prefs->get('username')    || $legacy_params->{user}       || '',
+		password    => $prefs->get('password')    || $legacy_params->{pass}       || '',
+		api_version => $prefs->get('api_version') || $legacy_params->{apiversion} || '1.16.1',
 		auth_type   => $prefs->get('auth_type')   || 'token',
 	);
 }
 
+sub _error_opml {
+	my ($class, $message) = @_;
+	return {
+		type  => 'opml',
+		title => 'GlowSonic',
+		items => [ { name => $message || 'GlowSonic error', type => 'text' } ],
+	};
+}
+
 sub _audio_item_from_entry {
 	my ($class, $api, $entry, $container) = @_;
+
+	return undef unless ref($entry) eq 'HASH' && defined $entry->{id};
 
 	my $coverart = $entry->{coverArt} || $entry->{albumId} || $container->{coverArt};
 	my $album = $entry->{album} || $container->{name} || $container->{title} || '';
@@ -228,8 +250,9 @@ sub _audio_item_from_entry {
 		suffix      => $entry->{suffix},
 		contentType => $entry->{contentType},
 	);
+	return undef unless $stream_url;
 
-	my (undef, $params) = $class->parse_url($stream_url);
+	my (undef, $params) = $class->parse_url($stream_url || '');
 	my $cover = $class->_cover_url($params);
 
 	return {
@@ -271,11 +294,17 @@ sub getFormatForURL {
 sub getNextTrack {
 	my ($class, $song, $success_cb, $error_cb) = @_;
 
-	my $url = $song->track->url;
+	my $url = eval { $song->track->url } || '';
 	my ($track_id, $params) = $class->parse_url($url);
 
 	my $stream_url = $class->_stream_url_from_glows($url);
 	my $fmt = $class->getFormatForURL($url);
+
+	unless ($stream_url) {
+		my $err = 'Unable to resolve GlowSonic stream URL';
+		$log->error("$err for track " . ($track_id || 'unknown'));
+		return $error_cb ? $error_cb->($err) : undef;
+	}
 
 	$log->debug("GlowSonic getNextTrack(): track=$track_id fmt=$fmt stream=" . $class->_redact_url($stream_url)) if $log->is_debug;
 	eval { $song->streamUrl($stream_url); };
@@ -350,16 +379,10 @@ sub _cover_url {
 	my $id = Plugins::GlowSonic::API::normalize_cover_art_id($cover_art_id);
 	return '' unless $id;
 
-	my $server_url = $params->{server} || '';
-	$server_url =~ s{/+$}{};
+	my $api = $class->_api_client_from_prefs($params);
+	return '' unless $api && $api->is_configured;
 
-	return "$server_url/rest/getCoverArt?"
-		. 'id='   . URI::Escape::uri_escape_utf8($id)
-		. '&size=300'
-		. '&v='   . URI::Escape::uri_escape_utf8($params->{apiversion} || '1.16.1')
-		. '&c=GlowSonic'
-		. '&u='   . URI::Escape::uri_escape_utf8($params->{user} || '')
-		. '&p='   . URI::Escape::uri_escape_utf8($params->{pass} || '');
+	return $api->cover_art_url($id, 300) || '';
 }
 
 1;

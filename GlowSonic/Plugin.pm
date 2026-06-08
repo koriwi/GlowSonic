@@ -13,7 +13,9 @@ use Slim::Utils::Strings qw(cstring);
 use Slim::Menu::GlobalSearch;
 use Slim::Menu::TrackInfo;
 use Slim::Control::Request;
-use Slim::Utils::Network;
+use Slim::Utils::Timers;
+use Time::HiRes qw(time);
+use List::Util qw(shuffle);
 use URI::Escape ();
 
 # Plugin modules
@@ -98,8 +100,9 @@ sub initPlugin {
 # Build API client from current preferences
 # ---------------------------------------------------------------------------
 sub _build_api {
+	$api = undef;
 	my $server_url  = $prefs->get('server_url');
-	return undef unless $server_url;
+	return undef unless defined $server_url && length $server_url;
 
 	$api = Plugins::GlowSonic::API::Async->new(
 		server_url  => $server_url,
@@ -109,19 +112,17 @@ sub _build_api {
 		auth_type   => $prefs->get('auth_type')   || 'token',
 	);
 
-	return $api;
+	return $api->is_configured ? $api : undef;
 }
 
 # ---------------------------------------------------------------------------
 # Ensure API client is configured; return error item if not
 # ---------------------------------------------------------------------------
 sub _ensure_api {
-	unless ($api && $api->{server_url}) {
+	unless ($api && $api->is_configured) {
 		_build_api();
 	}
-	unless ($api && $api->{server_url}) {
-		return undef;
-	}
+	return undef unless $api && $api->is_configured;
 	return $api;
 }
 
@@ -178,6 +179,9 @@ sub _handle_feed {
 	}
 	elsif ($type eq 'starred') {
 		_feed_starred($client, $callback, $local_api);
+	}
+	elsif ($type eq 'artist_songs') {
+		_feed_artist_songs($client, $callback, $local_api, $id);
 	}
 	elsif ($type eq 'similar_songs') {
 		_feed_similar_songs($client, $callback, $local_api, $id);
@@ -278,21 +282,21 @@ sub _feed_artists {
 		on_success => sub {
 			$api->get_artists(
 				success_cb => sub {
-					my $artists_data = shift || {};
-					my $index = $artists_data->{index} || [];
+					my $artists_data = $api->as_hash(shift);
+					my $index = $api->as_array($artists_data->{index});
 					my @items;
 
 					for my $idx (@$index) {
-						my $letter = $idx->{name} || '#';
-						my $artist_list = $idx->{artist} || [];
+						next unless ref $idx eq 'HASH';
+						my $artist_list = $api->as_array($idx->{artist});
 						for my $artist (@$artist_list) {
+							next unless ref $artist eq 'HASH' && defined $artist->{id};
 							push @items, {
 								name  => $artist->{name} || 'Unknown Artist',
 								type  => 'link',
 								url   => _opml_url('artist_albums', id => $artist->{id}),
 								image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 								passthrough => [{ artist_id => $artist->{id}, artist_name => $artist->{name} }],
-								favorites_url => _full_url('artist_albums', id => $artist->{id}),
 							};
 						}
 					}
@@ -324,20 +328,29 @@ sub _feed_artist_albums {
 
 	$api->get_artist($artist_id,
 		success_cb => sub {
-			my $artist = shift || {};
-			my $albums = $artist->{album} || [];
+			my $artist = $api->as_hash(shift);
+			my $albums = $api->as_array($artist->{album});
 			my @items;
 
-			# Artist radio at top
+			# Play on an artist link starts the first playable child in LMS.
+			# Keep the artist's own shuffled catalog first, then expose radio separately.
 			if ($artist->{id}) {
-				unshift @items, {
+				push @items, {
+					name  => cstring($client, 'GLOWSONIC_MENU_ARTIST_SHUFFLE') . ' - ' . ($artist->{name} || ''),
+					type  => 'playlist',
+					url   => _opml_url('artist_songs', id => $artist->{id}),
+					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
+					on_select => 'play',
+					playall => 1,
+					passthrough => [{ artist_id => $artist->{id} }],
+				};
+				push @items, {
 					name  => cstring($client, 'GLOWSONIC_MENU_ARTIST_RADIO') . ' - ' . ($artist->{name} || ''),
 					type  => 'playlist',
 					url   => _opml_url('similar_songs', id => $artist->{id}),
 					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 					on_select => 'play',
 					playall => 1,
-					favorites_url => _full_url('similar_songs', id => $artist->{id}),
 					passthrough => [{ artist_id => $artist->{id} }],
 				};
 			}
@@ -363,8 +376,8 @@ sub _feed_album {
 
 	$api->get_album($album_id,
 		success_cb => sub {
-			my $album = shift || {};
-			my $songs = $album->{song} || [];
+			my $album = $api->as_hash(shift);
+			my $songs = $api->as_array($album->{song});
 			my @items;
 
 			# "Play All" item at top
@@ -383,11 +396,11 @@ sub _feed_album {
 			}
 
 			for my $song (@$songs) {
+				next unless ref $song eq 'HASH';
 				push @items, _song_item($api, $song,
 					album         => $album->{name},
 					album_id      => $album_id,
 					coverart      => $album->{coverArt} || $song->{coverArt},
-					favorites_url => _full_url('album', id => $album_id),
 				);
 			}
 
@@ -408,7 +421,7 @@ sub _feed_genres {
 
 	$api->get_genres(
 		success_cb => sub {
-			my $genres = shift || [];
+			my $genres = $api->as_array(shift);
 			my @items;
 
 			for my $genre (@$genres) {
@@ -419,7 +432,6 @@ sub _feed_genres {
 					type  => 'link',
 					url   => _opml_url('genre_albums', id => $name),
 					passthrough => [{ genre => $name }],
-					favorites_url => _full_url('genre_albums', id => $name),
 				};
 			}
 
@@ -444,7 +456,7 @@ sub _feed_genre_albums {
 		size   => ALBUM_PAGE_SIZE + 1,
 		offset => $offset,
 		success_cb => sub {
-			my $albums = shift || [];
+			my $albums = $api->as_array(shift);
 			my $has_more = @$albums > ALBUM_PAGE_SIZE;
 			splice @$albums, ALBUM_PAGE_SIZE if $has_more;
 			my @items = _album_list_items($client, $api, $albums);
@@ -466,10 +478,11 @@ sub _feed_playlists {
 
 	$api->get_playlists(
 		success_cb => sub {
-			my $playlists = shift || [];
+			my $playlists = $api->as_array(shift);
 			my @items;
 
 			for my $pl (@$playlists) {
+				next unless ref $pl eq 'HASH' && defined $pl->{id};
 				push @items, {
 					name  => $pl->{name} || 'Unknown Playlist',
 					type  => 'playlist',
@@ -499,8 +512,8 @@ sub _feed_playlist {
 
 	$api->get_playlist($playlist_id,
 		success_cb => sub {
-			my $playlist = shift || {};
-			my $entries = $playlist->{entry} || [];
+			my $playlist = $api->as_hash(shift);
+			my $entries = $api->as_array($playlist->{entry});
 			my @items;
 
 			if (@$entries) {
@@ -518,9 +531,9 @@ sub _feed_playlist {
 			}
 
 			for my $entry (@$entries) {
+				next unless ref $entry eq 'HASH';
 				push @items, _song_item($api, $entry,
 					coverart      => $entry->{coverArt} || $entry->{albumId} || $playlist->{coverArt},
-					favorites_url => _full_url('album', id => ($entry->{albumId} || $playlist_id)),
 				);
 			}
 
@@ -544,7 +557,7 @@ sub _feed_album_list {
 		size   => ALBUM_PAGE_SIZE + 1,
 		offset => $offset,
 		success_cb => sub {
-			my $albums = shift || [];
+			my $albums = $api->as_array(shift);
 			my $has_more = @$albums > ALBUM_PAGE_SIZE;
 			splice @$albums, ALBUM_PAGE_SIZE if $has_more;
 			my @items = _album_list_items($client, $api, $albums);
@@ -572,34 +585,32 @@ sub _feed_search {
 
 	$api->search($query,
 		success_cb => sub {
-			my $results = shift || {};
+			my $results = $api->as_hash(shift);
 			my @items;
 
 			# Artists
-			my $artists = $results->{artist} || [];
+			my $artists = $api->as_array($results->{artist});
 			for my $artist (@$artists) {
+				next unless ref $artist eq 'HASH' && defined $artist->{id};
 				push @items, {
 					name  => cstring($client, 'GLOWSONIC_ARTIST') . ': ' . ($artist->{name} || 'Unknown'),
 					type  => 'link',
 					url   => _opml_url('artist_albums', id => $artist->{id}),
 					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 					passthrough => [{ artist_id => $artist->{id}, artist_name => $artist->{name} }],
-					favorites_url => _full_url('artist_albums', id => $artist->{id}),
 				};
 			}
 
 			# Albums
-			my $albums = $results->{album} || [];
+			my $albums = $api->as_array($results->{album});
 			for my $album (@$albums) {
 				push @items, _album_item($client, $api, $album);
 			}
 
 			# Songs
-			my $songs = $results->{song} || [];
+			my $songs = $api->as_array($results->{song});
 			for my $song (@$songs) {
-				push @items, _song_item($api, $song,
-					favorites_url => _full_url('album', id => ($song->{albumId} || '')),
-				);
+				push @items, _song_item($api, $song);
 			}
 
 			_finish_items($client, $callback, @items);
@@ -619,11 +630,12 @@ sub _feed_starred {
 
 	$api->get_starred(
 		success_cb => sub {
-			my $starred = shift || {};
+			my $starred = $api->as_hash(shift);
 			my @items;
 
-			my $artists = $starred->{artist} || [];
+			my $artists = $api->as_array($starred->{artist});
 			for my $a (@$artists) {
+				next unless ref $a eq 'HASH' && defined $a->{id};
 				push @items, {
 					name  => '★ ' . ($a->{name} || 'Unknown Artist'),
 					type  => 'link',
@@ -632,17 +644,83 @@ sub _feed_starred {
 				};
 			}
 
-			my $albums = $starred->{album} || [];
+			my $albums = $api->as_array($starred->{album});
 			for my $a (@$albums) {
 				push @items, _album_item($client, $api, $a);
 			}
 
-			my $songs = $starred->{song} || [];
+			my $songs = $api->as_array($starred->{song});
 			for my $s (@$songs) {
 				push @items, _song_item($api, $s, name_prefix => '★ ');
 			}
 
 			_finish_items($client, $callback, @items);
+		},
+		error_cb => sub {
+			my ($error) = @_;
+			$callback->([ _error_item($client, $error) ]);
+		},
+	);
+}
+
+# ===========================================================================
+# All artist songs, shuffled from every album returned by getArtist/getAlbum
+# ===========================================================================
+sub _feed_artist_songs {
+	my ($client, $callback, $api, $artist_id) = @_;
+
+	$api->get_artist($artist_id,
+		success_cb => sub {
+			my $artist = $api->as_hash(shift);
+			my @albums = grep { ref $_ eq 'HASH' && defined $_->{id} && length $_->{id} }
+				@{ $api->as_array($artist->{album}) };
+
+			unless (@albums) {
+				$callback->([ _empty_item($client) ]);
+				return;
+			}
+
+			my @songs;
+			my %seen;
+			my $first_error;
+			my $fetch_next;
+			$fetch_next = sub {
+				my $album_ref = shift @albums;
+				unless ($album_ref) {
+					my @items = map { _song_item($api, $_) } shuffle @songs;
+					@items = grep { ref $_ eq 'HASH' } @items;
+					if (@items) {
+						$callback->(\@items);
+					} elsif ($first_error) {
+						$callback->([ _error_item($client, $first_error) ]);
+					} else {
+						$callback->([ _empty_item($client) ]);
+					}
+					return;
+				}
+
+				$api->get_album($album_ref->{id},
+					success_cb => sub {
+						my $album = $api->as_hash(shift);
+						for my $song (@{ $api->as_array($album->{song}) }) {
+							next unless ref $song eq 'HASH' && defined $song->{id} && length $song->{id};
+							next if $seen{ $song->{id} }++;
+							my %song = %$song;
+							$song{album}    ||= $album->{name} || $album_ref->{name};
+							$song{albumId}  ||= $album->{id} || $album_ref->{id};
+							$song{coverArt} ||= $album->{coverArt} || $album_ref->{coverArt};
+							push @songs, \%song;
+						}
+						$fetch_next->();
+					},
+					error_cb => sub {
+						my ($error) = @_;
+						$first_error ||= $error;
+						$fetch_next->();
+					},
+				);
+			};
+			$fetch_next->();
 		},
 		error_cb => sub {
 			my ($error) = @_;
@@ -660,10 +738,8 @@ sub _feed_similar_songs {
 	$api->get_similar_songs($artist_id,
 		count => 100,
 		success_cb => sub {
-			my $songs = shift || [];
-			my @items = map {
-				_song_item($api, $_, favorites_url => _full_url('album', id => ($_->{albumId} || '')))
-			} @$songs;
+			my $songs = $api->as_array(shift);
+			my @items = map { _song_item($api, $_) } @$songs;
 			_finish_items($client, $callback, @items);
 		},
 		error_cb => sub {
@@ -682,10 +758,8 @@ sub _feed_genre_songs {
 	$api->get_songs_by_genre($genre,
 		count => 100,
 		success_cb => sub {
-			my $songs = shift || [];
-			my @items = map {
-				_song_item($api, $_, favorites_url => _full_url('album', id => ($_->{albumId} || '')))
-			} @$songs;
+			my $songs = $api->as_array(shift);
+			my @items = map { _song_item($api, $_) } @$songs;
 			_finish_items($client, $callback, @items);
 		},
 		error_cb => sub {
@@ -712,17 +786,18 @@ sub _global_search {
 		albumCount  => 5,
 		songCount   => 10,
 		success_cb => sub {
-			my $results = shift || {};
+			my $results = $local_api->as_hash(shift);
 			my @items;
 
-			for my $song (@{$results->{song} || []}) {
+			for my $song (@{ $local_api->as_array($results->{song}) }) {
 				push @items, _song_item($local_api, $song,
 					line2 => ($song->{artist} || ''),
 					line3 => ($song->{album} || ''),
 				);
 			}
 
-			for my $artist (@{$results->{artist} || []}) {
+			for my $artist (@{ $local_api->as_array($results->{artist}) }) {
+				next unless ref $artist eq 'HASH' && defined $artist->{id};
 				push @items, {
 					name   => cstring($client, 'GLOWSONIC_ARTIST') . ': ' . ($artist->{name} || ''),
 					type   => 'link',
@@ -731,7 +806,8 @@ sub _global_search {
 				};
 			}
 
-			for my $album (@{$results->{album} || []}) {
+			for my $album (@{ $local_api->as_array($results->{album}) }) {
+				next unless ref $album eq 'HASH' && defined $album->{id};
 				push @items, {
 					name   => cstring($client, 'GLOWSONIC_ALBUM') . ': ' . ($album->{name} || ''),
 					line2  => ($album->{artist} || ''),
@@ -742,6 +818,7 @@ sub _global_search {
 				};
 			}
 
+			@items = grep { ref $_ eq 'HASH' } @items;
 			$callback->(\@items);
 		},
 		error_cb => sub {
@@ -757,19 +834,24 @@ sub _track_info_menu {
 	my ($client, $url, $track, $remoteMeta, $tags, $items) = @_;
 
 	# Only add menu for GlowSonic tracks (glows:// URLs)
-	return unless $url =~ /^glows/;
+	return unless defined $url && $url =~ /^glows/;
 
 	my $local_api = _ensure_api();
 	return unless $local_api;
 
-	# Parse track info from passthrough
-	my $pt = $track->pluginData->{passthrough};
+	# Parse track info from passthrough when present, otherwise fall back to
+	# metadata encoded in the glows:// URL (common for restored playlists).
+	my $pt = eval { $track->pluginData->{passthrough} } || undef;
 	$pt = $pt->[0] if ref $pt eq 'ARRAY';
+	$pt = {} unless ref $pt eq 'HASH';
 
-	my $artist   = $pt ? $pt->{artist}   : undef;
-	my $album    = $pt ? $pt->{album}    : undef;
-	my $title    = $pt ? $pt->{title}    : undef;
-	my $album_id = $pt ? $pt->{album_id} : undef;
+	my (undef, $url_params) = Plugins::GlowSonic::ProtocolHandler->parse_url($url);
+	$url_params ||= {};
+
+	my $artist   = $pt->{artist}   || $url_params->{artist};
+	my $album    = $pt->{album}    || $url_params->{album};
+	my $title    = $pt->{title}    || $url_params->{title};
+	my $album_id = $pt->{album_id} || $url_params->{album_id};
 
 	# Search this artist
 	if ($artist) {
@@ -813,13 +895,15 @@ sub _track_info_menu {
 
 sub _track_info_search_artist {
 	my ($client, $callback, $args) = @_;
-	my $query = $args->{passthrough}[0]{query};
+	my $query = _passthrough_query($args);
 	my $local_api = _ensure_api();
+	return $callback->([]) unless $local_api && defined $query && length $query;
 	$local_api->search($query, artistCount => 20, albumCount => 0, songCount => 0,
 		success_cb => sub {
-			my $results = shift || {};
+			my $results = $local_api->as_hash(shift);
 			my @items;
-			for my $a (@{$results->{artist} || []}) {
+			for my $a (@{ $local_api->as_array($results->{artist}) }) {
+				next unless ref $a eq 'HASH' && defined $a->{id};
 				push @items, {
 					name => $a->{name},
 					type => 'link',
@@ -834,13 +918,15 @@ sub _track_info_search_artist {
 
 sub _track_info_search_album {
 	my ($client, $callback, $args) = @_;
-	my $query = $args->{passthrough}[0]{query};
+	my $query = _passthrough_query($args);
 	my $local_api = _ensure_api();
+	return $callback->([]) unless $local_api && defined $query && length $query;
 	$local_api->search($query, artistCount => 0, albumCount => 20, songCount => 0,
 		success_cb => sub {
-			my $results = shift || {};
+			my $results = $local_api->as_hash(shift);
 			my @items;
-			for my $a (@{$results->{album} || []}) {
+			for my $a (@{ $local_api->as_array($results->{album}) }) {
+				next unless ref $a eq 'HASH' && defined $a->{id};
 				push @items, {
 					name  => $a->{name},
 					line2 => $a->{artist},
@@ -857,21 +943,30 @@ sub _track_info_search_album {
 
 sub _track_info_search {
 	my ($client, $callback, $args) = @_;
-	my $query = $args->{passthrough}[0]{query};
+	my $query = _passthrough_query($args);
 	my $local_api = _ensure_api();
+	return $callback->([]) unless $local_api && defined $query && length $query;
 	$local_api->search($query,
 		success_cb => sub {
-			my $results = shift || {};
+			my $results = $local_api->as_hash(shift);
 			my @items;
-			for my $s (@{$results->{song} || []}) {
+			for my $s (@{ $local_api->as_array($results->{song}) }) {
 				push @items, _song_item($local_api, $s,
 					line2 => join(' - ', grep { length } ($s->{artist} || '', $s->{album} || '')),
 				);
 			}
+			@items = grep { ref $_ eq 'HASH' } @items;
 			$callback->(\@items);
 		},
 		error_cb => sub { $callback->([]) },
 	);
+}
+
+sub _passthrough_query {
+	my $args = shift || {};
+	my $pt = ref $args eq 'HASH' ? $args->{passthrough} : undef;
+	$pt = $pt->[0] if ref $pt eq 'ARRAY';
+	return ref $pt eq 'HASH' ? $pt->{query} : undef;
 }
 
 # ===========================================================================
@@ -898,6 +993,7 @@ sub _ensure_auth {
 # ---------------------------------------------------------------------------
 sub _finish_items {
 	my ($client, $callback, @items) = @_;
+	@items = grep { ref $_ eq 'HASH' } @items;
 	$callback->(@items ? \@items : [ _empty_item($client) ]);
 }
 
@@ -937,6 +1033,7 @@ sub _add_album_pagination {
 # ---------------------------------------------------------------------------
 sub _song_item {
 	my ($api, $song, %opts) = @_;
+	return undef unless ref $song eq 'HASH' && defined $song->{id} && length $song->{id};
 
 	my $album    = defined $opts{album}    ? $opts{album}    : ($song->{album} || '');
 	my $album_id = defined $opts{album_id} ? $opts{album_id} : $song->{albumId};
@@ -955,6 +1052,7 @@ sub _song_item {
 		suffix      => $song->{suffix},
 		contentType => $song->{contentType},
 	);
+	return undef unless $stream_url;
 
 	my %item = (
 		name         => ($opts{name_prefix} || '') . $title,
@@ -994,6 +1092,7 @@ sub _song_item {
 # ===========================================================================
 sub _album_item {
 	my ($client, $api, $album) = @_;
+	return undef unless ref $album eq 'HASH' && defined $album->{id} && length $album->{id};
 	return {
 		name  => ($album->{name} || 'Unknown Album') . ' - ' . ($album->{artist} || ''),
 		type  => 'playlist',
@@ -1012,8 +1111,9 @@ sub _album_item {
 sub _album_list_items {
 	my ($client, $api, $albums) = @_;
 	my @items;
-	for my $album (@$albums) {
-		push @items, _album_item($client, $api, $album);
+	for my $album (@{ $api->as_array($albums) }) {
+		my $item = _album_item($client, $api, $album);
+		push @items, $item if $item;
 	}
 	return @items;
 }
@@ -1067,27 +1167,6 @@ sub _opml_url {
 	};
 }
 
-# ---------------------------------------------------------------------------
-# Helper: LMS server base URL (needed for favorites_url HTTP strings)
-# ---------------------------------------------------------------------------
-sub _base_url {
-	my $host = Slim::Utils::Network::hostName();
-	my $port = $prefs->get('httpport') || 9000;
-	return "http://$host:$port";
-}
-
-# ---------------------------------------------------------------------------
-# Helper: full HTTP URL for favorites (favorites system needs HTTP strings)
-# ---------------------------------------------------------------------------
-sub _full_url {
-	my ($type, %args) = @_;
-	my $url = _base_url() . "/plugins/glowsonic/index.html?type=$type";
-	for my $key (keys %args) {
-		$url .= "&$key=" . URI::Escape::uri_escape_utf8($args{$key});
-	}
-	return $url;
-}
-
 # ===========================================================================
 # Helper: cover art URL through API
 # ===========================================================================
@@ -1096,6 +1175,7 @@ sub _api_cover_url {
 	return undef unless $cover_art_id;
 
 	my $size = $prefs->get('artwork_size') || 300;
+	$size = 300 unless $size =~ /^\d+$/ && $size > 0 && $size <= 2000;
 	return $api->cover_art_url($cover_art_id, $size);
 }
 
@@ -1133,7 +1213,7 @@ sub _on_prefs_change {
 }
 
 # ---------------------------------------------------------------------------
-# Track play notification — scrobble to Navidrome
+# Track play notification — scrobble to Navidrome after a basic play threshold.
 # ---------------------------------------------------------------------------
 sub _on_play_notification {
 	my $request = shift;
@@ -1141,16 +1221,48 @@ sub _on_play_notification {
 
 	my $client  = $request->client;
 	my $song    = $request->getResult;
-	return unless $song;
+	return unless $client && $song;
 
-	my $url = $song->track->url;
+	my $url = eval { $song->track->url } || '';
 	return unless $url && $url =~ /^glows/;
 
-	# Get track ID from passthrough or parse from glows:// URL
-	my ($track_id) = Plugins::GlowSonic::ProtocolHandler->parse_url($url);
+	my ($track_id, $params) = Plugins::GlowSonic::ProtocolHandler->parse_url($url);
 	return unless $track_id;
 
-	# Navidrome: only scrobble with submission=true marks as played
+	# Cancel any pending scrobble for the previous track on this player.
+	eval { Slim::Utils::Timers::killTimers($client, \&_scrobble_timer_cb); };
+
+	my $duration = $params->{duration};
+	my $delay = 60;
+	if (defined $duration && $duration =~ /^\d+(?:\.\d+)?$/ && $duration > 0) {
+		$delay = int($duration / 2);
+		$delay = 30  if $delay < 30;
+		$delay = 240 if $delay > 240;
+	}
+
+	eval {
+		Slim::Utils::Timers::setTimer($client, time() + $delay, \&_scrobble_timer_cb, $url, $track_id);
+	};
+	if ($@) {
+		$log->warn("Could not schedule GlowSonic scrobble timer, scrobbling immediately: $@");
+		_scrobble_track($track_id);
+	}
+}
+
+sub _scrobble_timer_cb {
+	my ($client, $url, $track_id) = @_;
+	return unless $prefs->get('scrobble_enabled') && $track_id;
+
+	my $current_url = eval { $client->playingSong->track->url }
+		|| eval { $client->streamingSong->track->url }
+		|| '';
+	return unless $current_url && $current_url eq $url;
+
+	_scrobble_track($track_id);
+}
+
+sub _scrobble_track {
+	my $track_id = shift;
 	my $local_api = _ensure_api();
 	return unless $local_api;
 
@@ -1161,6 +1273,7 @@ sub _on_play_notification {
 		},
 		error_cb => sub {
 			my ($err) = @_;
+			$err ||= 'unknown error';
 			$log->warn("Scrobble failed for $track_id: $err");
 		},
 	);

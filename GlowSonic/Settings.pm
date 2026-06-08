@@ -43,6 +43,8 @@ sub handler {
 
 	# Handle saveSettings (SUPER handles the actual saving via prefs() above)
 	if ($params->{saveSettings}) {
+		_normalize_submitted_settings($params);
+
 		# Mask password if unchanged
 		if (defined $params->{pref_password} && $params->{pref_password} =~ /^\*+$/) {
 			delete $params->{pref_password};
@@ -54,6 +56,37 @@ sub handler {
 		my ($client, $params, $body) = @_;
 		$callback->($client, $params, $body, @args);
 	}, @args);
+}
+
+sub _normalize_submitted_settings {
+	my $params = shift;
+
+	for my $key (qw(pref_server_url pref_username pref_api_version pref_auth_type pref_transcode_format pref_artwork_size pref_transcode_bitrate)) {
+		next unless defined $params->{$key};
+		$params->{$key} =~ s/^\s+|\s+$//g;
+	}
+
+	if (defined $params->{pref_server_url} && length $params->{pref_server_url}) {
+		# Do not save malformed/unsupported URLs. Leaving it blank makes the main
+		# menu show the normal “not configured” message instead of failing later.
+		unless ($params->{pref_server_url} =~ m{^https?://}i) {
+			$params->{pref_server_url} = '';
+		}
+		$params->{pref_server_url} =~ s{/+$}{};
+	}
+
+	$params->{pref_auth_type} = 'token'
+		unless defined $params->{pref_auth_type} && $params->{pref_auth_type} eq 'password';
+
+	$params->{pref_artwork_size} = 300
+		unless defined $params->{pref_artwork_size} && $params->{pref_artwork_size} =~ /^\d+$/ && $params->{pref_artwork_size} > 0 && $params->{pref_artwork_size} <= 2000;
+
+	$params->{pref_transcode_bitrate} = 0
+		unless defined $params->{pref_transcode_bitrate} && $params->{pref_transcode_bitrate} =~ /^\d+$/ && $params->{pref_transcode_bitrate} >= 0;
+
+	my %formats = map { $_ => 1 } qw(mp3 opus ogg aac);
+	$params->{pref_transcode_format} = ''
+		unless defined $params->{pref_transcode_format} && ($params->{pref_transcode_format} eq '' || $formats{$params->{pref_transcode_format}});
 }
 
 # ---------------------------------------------------------------------------
