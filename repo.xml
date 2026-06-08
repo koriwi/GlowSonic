@@ -10,7 +10,7 @@
 			<desc lang="EN">Subsonic/OpenSubsonic client for Lyrion Music Server.</desc>
 			<url>https://github.com/koriwi/GlowSonic/releases/download/v0.3.0/GlowSonic-0.3.0.zip</url>
 			<creator>GlowSonic contributors</creator>
-			<sha>97e6781dc91b8a6f723b7a9edf713873ee22c321</sha>
+			<sha>423e7ff19313d94cba717060b2eacc8059bc50ee</sha>
 			<link>https://github.com/koriwi/GlowSonic</link>
 		</plugin>
 	</plugins>
