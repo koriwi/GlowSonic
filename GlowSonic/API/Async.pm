@@ -30,10 +30,15 @@ sub call {
 	my $error_cb   = delete $args{error_cb}   || sub {};
 	my $timeout    = delete $args{timeout}    || 15;
 
+	unless ($self->is_configured) {
+		$error_cb->('GlowSonic server is not configured', 0);
+		return;
+	}
+
 	# Build URL
 	my $url = $self->build_url($endpoint, %$params);
 
-	$log->debug("Async call: $url") if $log->is_debug;
+	$log->debug("Async call: " . $self->_redact_url($url)) if $log->is_debug;
 
 	Slim::Networking::SimpleAsyncHTTP->new(
 		sub {
@@ -60,7 +65,12 @@ sub call {
 			my ($status, $data) = $self->parse_response($content);
 
 			if ($status eq 'ok') {
-				$success_cb->($data);
+				my $ok = eval { $success_cb->($data); 1 };
+				unless ($ok) {
+					my $err = $@ || 'unknown callback error';
+					$log->error("Error processing $endpoint response: $err");
+					$error_cb->("Internal error processing API response", $code);
+				}
 			} elsif ($status eq 'failed') {
 				$log->error("API error: $data");
 				$error_cb->($data, $code);
@@ -72,6 +82,7 @@ sub call {
 		sub {
 			# Network error handler
 			my ($http, $error) = @_;
+			$error ||= 'unknown error';
 			$log->error("Network error calling $endpoint: $error");
 			$error_cb->("Network error: $error", 0);
 		},
@@ -81,8 +92,15 @@ sub call {
 	)->get($url);
 }
 
+sub _redact_url {
+	my ($self, $url) = @_;
+	return '' unless defined $url;
+	$url =~ s/([?&](?:p|pass|t|s)=)[^&]*/$1REDACTED/gi;
+	return $url;
+}
+
 # ---------------------------------------------------------------------------
-# Ping the server to verify connection and get auth salt
+# Ping the server to verify connection
 # ---------------------------------------------------------------------------
 sub ping {
 	my ($self, %args) = @_;
@@ -118,12 +136,7 @@ sub ping {
 }
 
 # ---------------------------------------------------------------------------
-# Get authentication salt (for token-based auth)
-# We do a ping first which Navidrome responds to even without auth
-# Then extract the salt if it's in the response, or we try without
-# Token auth: ping returns salt in response, then we compute token for subsequent calls
-# Alternatively we use getSalt endpoint
-# On Navidrome: first call with u/p returns salt, subsequent calls use token
+# Verify authentication using the configured auth mode.
 # ---------------------------------------------------------------------------
 sub authenticate {
 	my ($self, %args) = @_;
@@ -131,22 +144,7 @@ sub authenticate {
 	my $success_cb = delete $args{success_cb};
 	my $error_cb   = delete $args{error_cb};
 
-	if ($self->{auth_type} eq 'password') {
-		# Legacy password auth: just ping to verify
-		$self->ping(
-			success_cb => sub {
-				my $data = shift;
-				$success_cb->($data) if $success_cb;
-			},
-			error_cb => $error_cb || sub {},
-		);
-		return;
-	}
-
-	# Token auth: first verify the credentials. Until a token exists, API.pm
-	# sends password auth, which Navidrome accepts.
-	$self->call(
-		endpoint => 'ping',
+	$self->ping(
 		success_cb => sub {
 			my $data = shift;
 			$log->info("Authentication ping succeeded");
@@ -154,19 +152,9 @@ sub authenticate {
 		},
 		error_cb => sub {
 			my ($error, $code) = @_;
-			if ($code == 401 || $code == 403) {
-				# Clear token, retry with password
-				$self->{token} = undef;
-				$self->{salt}  = undef;
-				$self->{auth_type} = 'password';
-				$log->warn("Token auth failed, falling back to password auth");
-				$self->ping(
-					success_cb => $success_cb || sub {},
-					error_cb   => $error_cb || sub {},
-				);
-			} else {
-				$error_cb->($error, $code) if $error_cb;
-			}
+			$self->{token} = undef;
+			$self->{salt}  = undef;
+			$error_cb->($error, $code) if $error_cb;
 		},
 	);
 }
@@ -185,8 +173,7 @@ sub get_artists {
 		endpoint   => 'getArtists',
 		success_cb => sub {
 			my $data = shift;
-			my $artists = $data->{artists};
-			$success_cb->($artists) if $success_cb;
+			$success_cb->($self->as_hash($data->{artists})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -203,7 +190,7 @@ sub get_artist {
 		params     => { id => $id },
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{artist}) if $success_cb;
+			$success_cb->($self->as_hash($data->{artist})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -220,7 +207,7 @@ sub get_album {
 		params     => { id => $id },
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{album}) if $success_cb;
+			$success_cb->($self->as_hash($data->{album})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -251,8 +238,8 @@ sub get_album_list {
 		params     => \%params,
 		success_cb => sub {
 			my $data = shift;
-			my $album_list = $data->{albumList2} || $data->{albumList} || {};
-			$success_cb->($album_list->{album} || []) if $success_cb;
+			my $album_list = $self->as_hash($data->{albumList2} || $data->{albumList});
+			$success_cb->($self->as_array($album_list->{album})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -268,8 +255,8 @@ sub get_genres {
 		endpoint   => 'getGenres',
 		success_cb => sub {
 			my $data = shift;
-			my $genres = $data->{genres} || {};
-			$success_cb->($genres->{genre} || []) if $success_cb;
+			my $genres = $self->as_hash($data->{genres});
+			$success_cb->($self->as_array($genres->{genre})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -290,7 +277,8 @@ sub get_playlists {
 		params     => \%params,
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{playlists}->{playlist} || []) if $success_cb;
+			my $playlists = $self->as_hash($data->{playlists});
+			$success_cb->($self->as_array($playlists->{playlist})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -307,7 +295,7 @@ sub get_playlist {
 		params     => { id => $id },
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{playlist}) if $success_cb;
+			$success_cb->($self->as_hash($data->{playlist})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -332,7 +320,7 @@ sub search {
 		},
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{searchResult3}) if $success_cb;
+			$success_cb->($self->as_hash($data->{searchResult3})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -348,7 +336,7 @@ sub get_starred {
 		endpoint   => 'getStarred2',
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{starred2}) if $success_cb;
+			$success_cb->($self->as_hash($data->{starred2})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -366,7 +354,8 @@ sub get_songs_by_genre {
 		params     => { genre => $genre, count => $count },
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{songsByGenre}->{song} || []) if $success_cb;
+			my $songs = $self->as_hash($data->{songsByGenre});
+			$success_cb->($self->as_array($songs->{song})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -384,7 +373,8 @@ sub get_similar_songs {
 		params     => { id => $id, count => $count },
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{similarSongs2}->{song} || []) if $success_cb;
+			my $songs = $self->as_hash($data->{similarSongs2});
+			$success_cb->($self->as_array($songs->{song})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);
@@ -470,7 +460,7 @@ sub get_podcasts {
 		endpoint   => 'getPodcasts',
 		success_cb => sub {
 			my $data = shift;
-			$success_cb->($data->{podcasts}) if $success_cb;
+			$success_cb->($self->as_hash($data->{podcasts})) if $success_cb;
 		},
 		error_cb => $error_cb || sub {},
 	);

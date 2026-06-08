@@ -38,9 +38,11 @@ sub call {
 	my $params   = delete $args{params} || {};
 	my $timeout  = delete $args{timeout} || 30;
 
+	return ('error', 'GlowSonic server is not configured') unless $self->is_configured;
+
 	my $url = $self->build_url($endpoint, %$params);
 
-	$log->debug("Sync call: $url") if $log->is_debug;
+	$log->debug("Sync call: " . _redact_url($url)) if $log->is_debug;
 
 	$self->{_ua}->timeout($timeout);
 
@@ -95,7 +97,8 @@ sub get_album_list {
 	);
 
 	if ($status eq 'ok') {
-		return $data->{albumList2} || $data->{albumList} || [];
+		my $album_list = $self->as_hash($data->{albumList2} || $data->{albumList});
+		return $self->as_array($album_list->{album});
 	}
 	return [];
 }
@@ -138,7 +141,7 @@ sub get_cover_art {
 	my $response = $self->{_ua}->get($url);
 
 	if ($response->is_success) {
-		return $response->decoded_content;
+		return $response->content;
 	}
 	return undef;
 }
@@ -149,16 +152,17 @@ sub get_cover_art {
 sub stream_track {
 	my ($self, $track_id, %opts) = @_;
 
-	my $url = $self->build_url('stream', id => $track_id,
+	my $url = $self->stream_http_url($track_id,
 		($opts{maxBitRate} ? (maxBitRate => $opts{maxBitRate}) : ()),
 		($opts{format}     ? (format     => $opts{format})     : ()),
 	);
+	return undef unless $url;
 
 	my $response = $self->{_ua}->get($url);
 
 	if ($response->is_success) {
 		return {
-			content      => $response->decoded_content,
+			content      => $response->content,
 			content_type => $response->header('Content-Type'),
 			duration     => $response->header('X-Content-Duration'),
 			length       => $response->header('Content-Length'),
@@ -183,6 +187,12 @@ sub scrobble {
 	);
 
 	return $status eq 'ok';
+}
+
+sub _redact_url {
+	my $url = shift || '';
+	$url =~ s/([?&](?:p|pass|t|s)=)[^&]*/$1REDACTED/gi;
+	return $url;
 }
 
 1;

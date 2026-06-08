@@ -12,6 +12,7 @@ use JSON::XS;
 # Use fully qualified calls for URI::Escape to avoid import issues
 use URI::Escape ();
 use Scalar::Util qw(looks_like_number);
+use Time::HiRes qw(time);
 
 # ---------------------------------------------------------------------------
 # Constructor
@@ -28,9 +29,10 @@ sub new {
 		salt        => undef,
 		token       => undef,
 	};
-	$self->{server_url} =~ s{/+$}{};   # strip trailing slashes
+	bless($self, $class);
+	$self->_normalize_config;
 
-	return bless($self, $class);
+	return $self;
 }
 
 # ---------------------------------------------------------------------------
@@ -43,10 +45,33 @@ sub configure {
 	$self->{password}    = $opts{password}    if defined $opts{password};
 	$self->{api_version} = $opts{api_version} if defined $opts{api_version};
 	$self->{auth_type}   = $opts{auth_type}   if defined $opts{auth_type};
-	$self->{server_url}  =~ s{/+$}{};
+	$self->_normalize_config;
 	# Reset cached auth
 	$self->{salt}  = undef;
 	$self->{token} = undef;
+}
+
+# ---------------------------------------------------------------------------
+# Normalize user-provided configuration values.
+# ---------------------------------------------------------------------------
+sub _normalize_config {
+	my $self = shift;
+
+	for my $key (qw(server_url username api_version auth_type)) {
+		next unless defined $self->{$key};
+		$self->{$key} =~ s/^\s+|\s+$//g;
+	}
+
+	$self->{server_url} =~ s{/+$}{} if defined $self->{server_url};
+	$self->{auth_type} = 'token' unless $self->{auth_type} && $self->{auth_type} eq 'password';
+}
+
+# ---------------------------------------------------------------------------
+# Basic config sanity check for code paths that need a reachable server.
+# ---------------------------------------------------------------------------
+sub is_configured {
+	my $self = shift;
+	return $self->{server_url} && $self->{server_url} =~ m{^https?://}i && length($self->{username} || '');
 }
 
 # ---------------------------------------------------------------------------
@@ -67,6 +92,31 @@ sub _compute_token {
 }
 
 # ---------------------------------------------------------------------------
+# Auth params. For token auth the Subsonic salt is generated client-side.
+# ---------------------------------------------------------------------------
+sub auth_params {
+	my $self = shift;
+
+	if (($self->{auth_type} || 'token') eq 'password') {
+		return (
+			u => $self->{username},
+			p => $self->{password},
+		);
+	}
+
+	unless ($self->{salt} && $self->{token}) {
+		$self->{salt}  = md5_hex(join(':', time, rand(), $$, $self->{username} || ''));
+		$self->{token} = $self->_compute_token($self->{salt});
+	}
+
+	return (
+		u => $self->{username},
+		t => $self->{token},
+		s => $self->{salt},
+	);
+}
+
+# ---------------------------------------------------------------------------
 # Build query parameters with auth
 # ---------------------------------------------------------------------------
 sub _build_params {
@@ -77,20 +127,8 @@ sub _build_params {
 		c => 'GlowSonic',
 		f => 'json',
 		%extra,
+		$self->auth_params,
 	);
-
-	if ($self->{auth_type} eq 'token' && $self->{token} && $self->{salt}) {
-		$params{u} = $self->{username};
-		$params{t} = $self->{token};
-		$params{s} = $self->{salt};
-	} elsif ($self->{auth_type} eq 'password') {
-		$params{u} = $self->{username};
-		$params{p} = $self->{password};
-	} else {
-		# Fallback: no auth params yet; caller should ping first
-		$params{u} = $self->{username};
-		$params{p} = $self->{password};
-	}
 
 	return \%params;
 }
@@ -110,12 +148,27 @@ sub _encode_params {
 }
 
 # ---------------------------------------------------------------------------
-# Build full URL for an endpoint
+# Build full JSON API URL for an endpoint
 # ---------------------------------------------------------------------------
 sub build_url {
 	my ($self, $endpoint, %extra) = @_;
 	my $params = $self->_build_params(%extra);
 	my $qs     = $self->_encode_params($params);
+	return $self->_rest_url . '/' . $endpoint . '?' . $qs;
+}
+
+# ---------------------------------------------------------------------------
+# Build full binary/non-JSON API URL for stream/getCoverArt endpoints.
+# ---------------------------------------------------------------------------
+sub build_binary_url {
+	my ($self, $endpoint, %extra) = @_;
+	my %params = (
+		v => $self->{api_version},
+		c => 'GlowSonic',
+		%extra,
+		$self->auth_params,
+	);
+	my $qs = $self->_encode_params(\%params);
 	return $self->_rest_url . '/' . $endpoint . '?' . $qs;
 }
 
@@ -192,6 +245,25 @@ sub safe_get {
 }
 
 # ---------------------------------------------------------------------------
+# Helpers for tolerant response-shape handling across Subsonic servers.
+# ---------------------------------------------------------------------------
+sub as_hash {
+	my ($self_or_value, $maybe_value) = @_;
+	my $value = @_ > 1 ? $maybe_value : $self_or_value;
+	return ref($value) eq 'HASH' ? $value : {};
+}
+
+sub as_array {
+	my ($self_or_value, $maybe_value) = @_;
+	my $value = @_ > 1 ? $maybe_value : $self_or_value;
+	return [] unless defined $value;
+	return $value if ref($value) eq 'ARRAY';
+	return [ $value ] if ref($value) eq 'HASH';
+	return [ $value ] unless ref($value);
+	return [];
+}
+
+# ---------------------------------------------------------------------------
 # Build a glows:// stream URL that the ProtocolHandler will resolve.
 # The handler parses the metadata, builds the real HTTP stream URL, and
 # sets track metadata (title/artist/album/duration) on the LMS song object.
@@ -199,13 +271,11 @@ sub safe_get {
 sub stream_url {
 	my ($self, $track_id, %opts) = @_;
 
-	# Connection params (needed by ProtocolHandler to build the real URL)
-	my %params = (
-		server     => $self->{server_url},
-		apiversion => $self->{api_version},
-		user       => $self->{username},
-		pass       => $self->{password},
-	);
+	return undef unless defined $track_id && length $track_id;
+
+	# Do not put credentials in glows:// URLs. The protocol handler resolves
+	# streams from current LMS prefs when playback starts.
+	my %params;
 
 	# Transcode options
 	$params{maxBitRate} = $opts{maxBitRate} if $opts{maxBitRate};
@@ -241,33 +311,33 @@ sub normalize_cover_art_id {
 }
 
 # ---------------------------------------------------------------------------
+# Helper: build the real Subsonic stream URL.
+# ---------------------------------------------------------------------------
+sub stream_http_url {
+	my ($self, $track_id, %opts) = @_;
+	return undef unless $self->is_configured && defined $track_id && length $track_id;
+
+	my %params = ( id => $track_id );
+	$params{maxBitRate} = $opts{maxBitRate} if $opts{maxBitRate};
+	$params{format}     = $opts{format}     if $opts{format};
+
+	return $self->build_binary_url('stream', %params);
+}
+
+# ---------------------------------------------------------------------------
 # Helper: build a cover art URL
 # IMPORTANT: getCoverArt must NOT use f=json because that makes Subsonic
 # return base64-encoded image data wrapped in JSON instead of raw binary.
 # We need raw binary image bytes for LMS to display correctly.
-#
-# Always use password auth for cover art URLs (more reliable for
-# browser-side image fetching since token may not be set yet).
 # ---------------------------------------------------------------------------
 sub cover_art_url {
 	my ($self, $cover_art_id, $size) = @_;
+	return undef unless $self->is_configured;
 	$cover_art_id = $self->normalize_cover_art_id($cover_art_id);
 	return undef unless $cover_art_id;
 	$size ||= 300;
 
-	# Build params WITHOUT f=json so we get raw binary image
-	my %params = (
-		v     => $self->{api_version},
-		c     => 'GlowSonic',
-		id    => $cover_art_id,
-		size  => $size,
-		# Always use password auth for image URLs (browser fetches directly)
-		u     => $self->{username},
-		p     => $self->{password},
-	);
-
-	my $qs = $self->_encode_params(\%params);
-	return $self->_rest_url . '/getCoverArt?' . $qs;
+	return $self->build_binary_url('getCoverArt', id => $cover_art_id, size => $size);
 }
 
 # ---------------------------------------------------------------------------
