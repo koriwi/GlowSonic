@@ -21,6 +21,7 @@ use Slim::Player::ProtocolHandlers;
 use Slim::Utils::Log;
 use Slim::Utils::Prefs;
 use Plugins::GlowSonic::API::Async;
+use Encode ();
 use URI::Escape ();
 
 my $log = Slim::Utils::Log::logger('plugin.glowsonic');
@@ -204,7 +205,7 @@ sub _parse_container_url {
 	my ($type, $id) = $url =~ m{^glowsonic://(playlist|album)/([^?]+)}i;
 	return unless $type && defined $id;
 
-	return (lc($type), URI::Escape::uri_unescape($id));
+	return (lc($type), $class->_uri_unescape_utf8($id));
 }
 
 sub _api_client_from_prefs {
@@ -353,18 +354,27 @@ sub parse_url {
 	my ($class, $url) = @_;
 
 	my ($track_id, $query) = $url =~ m{^glows?://([^?]+)(?:\?(.*))?$};
-	$track_id = URI::Escape::uri_unescape($track_id || '');
+	$track_id = $class->_uri_unescape_utf8($track_id || '');
 
 	my %params;
 	if ($query) {
 		for my $pair (split /&/, $query) {
 			my ($k, $v) = split /=/, $pair, 2;
 			if (defined $k) {
-				$params{$k} = URI::Escape::uri_unescape($v // '');
+				$params{ $class->_uri_unescape_utf8($k) } = $class->_uri_unescape_utf8($v // '');
 			}
 		}
 	}
 	return ($track_id, \%params);
+}
+
+sub _uri_unescape_utf8 {
+	my ($class, $value) = @_;
+	$value = '' unless defined $value;
+
+	my $bytes = URI::Escape::uri_unescape($value);
+	my $decoded = eval { Encode::decode('UTF-8', $bytes, Encode::FB_CROAK()) };
+	return defined $decoded ? $decoded : $bytes;
 }
 
 # ---------------------------------------------------------------------------
