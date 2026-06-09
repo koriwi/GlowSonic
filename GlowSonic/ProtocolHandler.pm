@@ -32,7 +32,7 @@ $log->debug("GlowSonic ProtocolHandler.pm loaded") if $log->is_debug;
 sub register {
 	my $class = shift;
 	Slim::Player::ProtocolHandlers->registerHandler(
-		glows => 'Plugins::GlowSonic::ProtocolHandler',
+		glows => 'Plugins::GlowSonic::AudioProtocolHandler',
 	);
 	Slim::Player::ProtocolHandlers->registerHandler(
 		glowsonic => 'Plugins::GlowSonic::ProtocolHandler',
@@ -158,6 +158,11 @@ sub canDirectStreamSong { return 0; }
 sub explodePlaylist {
 	my ($class, $client, $url, $cb) = @_;
 
+	if ($url && $url =~ /^glows:/i) {
+		$log->warn("GlowSonic explodePlaylist(): ignoring audio URL routed as playlist: $url");
+		return $cb->($class->_single_track_opml($url));
+	}
+
 	my ($container_type, $container_id) = $class->_parse_container_url($url);
 	unless ($container_type && $container_id) {
 		$log->error("GlowSonic explodePlaylist(): unsupported URL $url");
@@ -229,6 +234,33 @@ sub _error_opml {
 		type  => 'opml',
 		title => 'GlowSonic',
 		items => [ { name => $message || 'GlowSonic error', type => 'text' } ],
+	};
+}
+
+sub _single_track_opml {
+	my ($class, $url) = @_;
+	my (undef, $params) = $class->parse_url($url);
+	my $duration = $params->{duration};
+	$duration = 0 unless defined $duration && $duration =~ /^\d+(?:\.\d+)?$/;
+	my $cover = $class->_cover_url($params);
+
+	return {
+		type  => 'opml',
+		title => $params->{title} || 'GlowSonic',
+		items => [ {
+			name  => $params->{title} || 'Unknown',
+			type  => 'audio',
+			url   => $url,
+			image => $cover,
+			cover => $cover,
+			title  => $params->{title}  || '',
+			artist => $params->{artist} || '',
+			album  => $params->{album}  || '',
+			duration => $duration,
+			secs     => $duration,
+			bitrate  => $params->{bitrate},
+			content_type => $params->{contentType},
+		} ],
 	};
 }
 
