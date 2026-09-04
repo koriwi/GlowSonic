@@ -293,8 +293,9 @@ sub _feed_artists {
 							next unless ref $artist eq 'HASH' && defined $artist->{id};
 							push @items, {
 								name  => $artist->{name} || 'Unknown Artist',
-								type  => 'link',
+								type  => 'playlist',
 								url   => _opml_url('artist_albums', id => $artist->{id}),
+								play => $api->favorites_url('artist', $artist->{id}),
 								image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 								passthrough => [{ artist_id => $artist->{id}, artist_name => $artist->{name} }],
 							};
@@ -339,18 +340,18 @@ sub _feed_artist_albums {
 					name  => cstring($client, 'GLOWSONIC_MENU_ARTIST_SHUFFLE') . ' - ' . ($artist->{name} || ''),
 					type  => 'playlist',
 					url   => _opml_url('artist_songs', id => $artist->{id}),
+					play => $api->favorites_url('artist', $artist->{id}),
 					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 					on_select => 'play',
-					playall => 1,
 					passthrough => [{ artist_id => $artist->{id} }],
 				};
 				push @items, {
 					name  => cstring($client, 'GLOWSONIC_MENU_ARTIST_RADIO') . ' - ' . ($artist->{name} || ''),
 					type  => 'playlist',
 					url   => _opml_url('similar_songs', id => $artist->{id}),
+					play => $api->favorites_url('artist-radio', $artist->{id}),
 					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 					on_select => 'play',
-					playall => 1,
 					passthrough => [{ artist_id => $artist->{id} }],
 				};
 			}
@@ -386,9 +387,9 @@ sub _feed_album {
 					name  => cstring($client, 'GLOWSONIC_PLAY_ALL'),
 					type  => 'playlist',
 					url   => _opml_url('album', id => $album_id),
+					play => $api->favorites_url('album', $album_id),
 					image => _api_cover_url($api, $album->{coverArt}),
 					on_select => 'play',
-					playall => 1,
 					favorites_url  => $api->favorites_url('album', $album_id),
 					favorites_type => 'playlist',
 					passthrough => [{ album_id => $album_id }],
@@ -429,8 +430,9 @@ sub _feed_genres {
 				next unless $name;
 				push @items, {
 					name  => $name,
-					type  => 'link',
+					type  => 'playlist',
 					url   => _opml_url('genre_albums', id => $name),
+					play => $api->favorites_url('genre', $name),
 					passthrough => [{ genre => $name }],
 				};
 			}
@@ -487,8 +489,8 @@ sub _feed_playlists {
 					name  => $pl->{name} || 'Unknown Playlist',
 					type  => 'playlist',
 					url   => _opml_url('playlist', id => $pl->{id}),
+					play => $api->favorites_url('playlist', $pl->{id}),
 					image => _api_cover_url($api, $pl->{coverArt}),
-					playall => 1,
 					passthrough => [{ playlist_id => $pl->{id}, playlist_name => $pl->{name} }],
 					favorites_url  => $api->favorites_url('playlist', $pl->{id}),
 					favorites_type => 'playlist',
@@ -521,9 +523,9 @@ sub _feed_playlist {
 					name  => cstring($client, 'GLOWSONIC_PLAY_ALL'),
 					type  => 'playlist',
 					url   => _opml_url('playlist', id => $playlist_id),
+					play => $api->favorites_url('playlist', $playlist_id),
 					image => _api_cover_url($api, $playlist->{coverArt}),
 					on_select => 'play',
-					playall => 1,
 					favorites_url  => $api->favorites_url('playlist', $playlist_id),
 					favorites_type => 'playlist',
 					passthrough => [{ playlist_id => $playlist_id }],
@@ -594,8 +596,9 @@ sub _feed_search {
 				next unless ref $artist eq 'HASH' && defined $artist->{id};
 				push @items, {
 					name  => cstring($client, 'GLOWSONIC_ARTIST') . ': ' . ($artist->{name} || 'Unknown'),
-					type  => 'link',
+					type  => 'playlist',
 					url   => _opml_url('artist_albums', id => $artist->{id}),
+					play => $api->favorites_url('artist', $artist->{id}),
 					image => $artist->{artistImageUrl} || _api_cover_url($api, $artist->{coverArt}),
 					passthrough => [{ artist_id => $artist->{id}, artist_name => $artist->{name} }],
 				};
@@ -638,8 +641,9 @@ sub _feed_starred {
 				next unless ref $a eq 'HASH' && defined $a->{id};
 				push @items, {
 					name  => '★ ' . ($a->{name} || 'Unknown Artist'),
-					type  => 'link',
+					type  => 'playlist',
 					url   => _opml_url('artist_albums', id => $a->{id}),
+					play => $api->favorites_url('artist', $a->{id}),
 					image => $a->{artistImageUrl} || _api_cover_url($api, $a->{coverArt}),
 				};
 			}
@@ -800,8 +804,9 @@ sub _global_search {
 				next unless ref $artist eq 'HASH' && defined $artist->{id};
 				push @items, {
 					name   => cstring($client, 'GLOWSONIC_ARTIST') . ': ' . ($artist->{name} || ''),
-					type   => 'link',
+					type   => 'playlist',
 					url    => _opml_url('artist_albums', id => $artist->{id}),
+					play => $local_api->favorites_url('artist', $artist->{id}),
 					image  => _api_cover_url($local_api, $artist->{coverArt}),
 				};
 			}
@@ -813,8 +818,8 @@ sub _global_search {
 					line2  => ($album->{artist} || ''),
 					type   => 'playlist',
 					url    => _opml_url('album', id => $album->{id}),
+					play => $local_api->favorites_url('album', $album->{id}),
 					image  => _api_cover_url($local_api, $album->{coverArt}),
-					playall => 1,
 				};
 			}
 
@@ -887,8 +892,9 @@ sub _track_info_menu {
 	if ($album_id) {
 		push @$items, {
 			name => cstring($client, 'GLOWSONIC_ALBUM') . ': ' . ($album || ''),
-			type => 'link',
+			type => 'playlist',
 			url  => _opml_url('album', id => $album_id),
+			play => $local_api->favorites_url('album', $album_id),
 		};
 	}
 }
@@ -906,8 +912,9 @@ sub _track_info_search_artist {
 				next unless ref $a eq 'HASH' && defined $a->{id};
 				push @items, {
 					name => $a->{name},
-					type => 'link',
+					type => 'playlist',
 					url  => _opml_url('artist_albums', id => $a->{id}),
+					play => $local_api->favorites_url('artist', $a->{id}),
 				};
 			}
 			$callback->(\@items);
@@ -932,7 +939,7 @@ sub _track_info_search_album {
 					line2 => $a->{artist},
 					type  => 'playlist',
 					url   => _opml_url('album', id => $a->{id}),
-					playall => 1,
+					play => $local_api->favorites_url('album', $a->{id}),
 				};
 			}
 			$callback->(\@items);
@@ -1097,8 +1104,8 @@ sub _album_item {
 		name  => ($album->{name} || 'Unknown Album') . ' - ' . ($album->{artist} || ''),
 		type  => 'playlist',
 		url   => _opml_url('album', id => $album->{id}),
+		play => $api->favorites_url('album', $album->{id}),
 		image => _api_cover_url($api, $album->{coverArt}),
-		playall => 1,
 		passthrough => [{ album_id => $album->{id}, album_name => $album->{name} }],
 		favorites_url  => $api->favorites_url('album', $album->{id}),
 		favorites_type => 'playlist',

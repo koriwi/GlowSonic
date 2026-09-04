@@ -3,8 +3,8 @@ package Plugins::GlowSonic::ProtocolHandler;
 # Custom protocol handler for GlowSonic URLs.
 # - glows://<track_id> is an individual audio track. new() delegates to LMS's
 #   built-in HTTP/HTTPS handler with the real Subsonic /rest/stream URL.
-# - glowsonic://playlist/<id> and glowsonic://album/<id> are playable
-#   container URLs used by favorites/presets; explodePlaylist expands them.
+# - glowsonic://<container>/<id> URLs are stable, playable container URLs
+#   used by menu play actions and favorites; explodePlaylist expands them.
 # The metadata methods (getMetadataFor, getFormatForURL) provide track info.
 #
 # glows:// URL format:
@@ -22,6 +22,7 @@ use Slim::Utils::Log;
 use Slim::Utils::Prefs;
 use Plugins::GlowSonic::API::Async;
 use Encode ();
+use List::Util qw(shuffle);
 use URI::Escape ();
 
 my $log = Slim::Utils::Log::logger('plugin.glowsonic');
@@ -152,8 +153,9 @@ sub canDirectStream { return 0; }
 sub canDirectStreamSong { return 0; }
 
 # ---------------------------------------------------------------------------
-# Expand glowsonic://playlist/<id> or glowsonic://album/<id> preset/favorite
-# container URLs into a real OPML playlist of glows:// audio items.
+# Expand stable glowsonic:// container URLs into OPML playlists of glows://
+# audio items. A scalar playback URL is important here: Jive players cannot
+# serialize the Perl callbacks used for browsing when Play is pressed.
 # ---------------------------------------------------------------------------
 sub explodePlaylist {
 	my ($class, $client, $url, $cb) = @_;
@@ -165,7 +167,7 @@ sub explodePlaylist {
 
 	my ($container_type, $container_id) = $class->_parse_container_url($url);
 	unless ($container_type && $container_id) {
-		$log->error("GlowSonic explodePlaylist(): unsupported URL $url");
+		$log->error("GlowSonic explodePlaylist(): unsupported URL " . ($url || ''));
 		return $cb->($class->_error_opml('Unsupported GlowSonic favorite URL'));
 	}
 
@@ -173,22 +175,6 @@ sub explodePlaylist {
 	unless ($api && $api->is_configured) {
 		return $cb->($class->_error_opml('GlowSonic is not configured'));
 	}
-	my $success_cb = sub {
-		my $container = $api->as_hash(shift);
-		my $entries = $container_type eq 'album'
-			? $api->as_array($container->{song})
-			: $api->as_array($container->{entry});
-
-		my @items = grep { $_ } map { $class->_audio_item_from_entry($api, $_, $container) } @$entries;
-
-		$log->debug("GlowSonic explodePlaylist(): $container_type/$container_id returned " . scalar(@items) . " tracks") if $log->is_debug;
-
-		$cb->({
-			type  => 'opml',
-			title => $container->{name} || $container->{title} || 'GlowSonic',
-			items => \@items,
-		});
-	};
 
 	my $error_cb = sub {
 		my ($error) = @_;
@@ -197,17 +183,112 @@ sub explodePlaylist {
 		$cb->($class->_error_opml("Could not load GlowSonic playlist: $error"));
 	};
 
-	if ($container_type eq 'album') {
-		return $api->get_album($container_id, success_cb => $success_cb, error_cb => $error_cb);
+	if ($container_type eq 'album' || $container_type eq 'playlist') {
+		my $success_cb = sub {
+			my $container = $api->as_hash(shift);
+			my $entries = $container_type eq 'album'
+				? $api->as_array($container->{song})
+				: $api->as_array($container->{entry});
+			$class->_finish_explode($api, $cb, $container_type, $container_id, $container, $entries);
+		};
+
+		return $container_type eq 'album'
+			? $api->get_album($container_id, success_cb => $success_cb, error_cb => $error_cb)
+			: $api->get_playlist($container_id, success_cb => $success_cb, error_cb => $error_cb);
 	}
 
-	return $api->get_playlist($container_id, success_cb => $success_cb, error_cb => $error_cb);
+	if ($container_type eq 'artist') {
+		return $class->_explode_artist($api, $container_id, $cb, $error_cb);
+	}
+
+	if ($container_type eq 'artist-radio') {
+		return $api->get_similar_songs($container_id,
+			count => 100,
+			success_cb => sub {
+				$class->_finish_explode($api, $cb, $container_type, $container_id,
+					{ name => 'Artist Radio' }, $api->as_array(shift));
+			},
+			error_cb => $error_cb,
+		);
+	}
+
+	return $api->get_songs_by_genre($container_id,
+		count => 100,
+		success_cb => sub {
+			$class->_finish_explode($api, $cb, $container_type, $container_id,
+				{ name => $container_id }, $api->as_array(shift));
+		},
+		error_cb => $error_cb,
+	);
+}
+
+sub _finish_explode {
+	my ($class, $api, $cb, $container_type, $container_id, $container, $entries) = @_;
+	$container = $api->as_hash($container);
+	$entries   = $api->as_array($entries);
+
+	my @items = grep { $_ } map { $class->_audio_item_from_entry($api, $_, $container) } @$entries;
+	$log->debug("GlowSonic explodePlaylist(): $container_type/$container_id returned " . scalar(@items) . " tracks") if $log->is_debug;
+
+	$cb->({
+		type  => 'opml',
+		title => $container->{name} || $container->{title} || 'GlowSonic',
+		items => \@items,
+	});
+}
+
+sub _explode_artist {
+	my ($class, $api, $artist_id, $cb, $error_cb) = @_;
+
+	$api->get_artist($artist_id,
+		success_cb => sub {
+			my $artist = $api->as_hash(shift);
+			my @albums = grep { ref $_ eq 'HASH' && defined $_->{id} && length $_->{id} }
+				@{ $api->as_array($artist->{album}) };
+			my (@songs, %seen);
+			my $first_error;
+			my $fetch_next;
+
+			$fetch_next = sub {
+				my $album_ref = shift @albums;
+				unless ($album_ref) {
+					return $error_cb->($first_error) if !@songs && $first_error;
+					my @shuffled = shuffle @songs;
+					return $class->_finish_explode($api, $cb, 'artist', $artist_id, $artist, \@shuffled);
+				}
+
+				$api->get_album($album_ref->{id},
+					success_cb => sub {
+						my $album = $api->as_hash(shift);
+						for my $entry (@{ $api->as_array($album->{song}) }) {
+							next unless ref $entry eq 'HASH' && defined $entry->{id} && length $entry->{id};
+							next if $seen{ $entry->{id} }++;
+							my %song = %$entry;
+							$song{album}    ||= $album->{name} || $album_ref->{name};
+							$song{albumId}  ||= $album->{id} || $album_ref->{id};
+							$song{coverArt} ||= $album->{coverArt} || $album_ref->{coverArt};
+							push @songs, \%song;
+						}
+						$fetch_next->();
+					},
+					error_cb => sub {
+						my ($error) = @_;
+						$first_error ||= $error || 'Could not load artist album';
+						$fetch_next->();
+					},
+				);
+			};
+
+			$fetch_next->();
+		},
+		error_cb => $error_cb,
+	);
 }
 
 sub _parse_container_url {
 	my ($class, $url) = @_;
 
-	my ($type, $id) = $url =~ m{^glowsonic://(playlist|album)/([^?]+)}i;
+	my ($type, $id) = ($url || '') =~ m{^glowsonic://(playlist|album|artist-radio|artist|genre)/([^?]+)}i;
 	return unless $type && defined $id;
 
 	return (lc($type), $class->_uri_unescape_utf8($id));

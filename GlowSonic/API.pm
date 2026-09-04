@@ -345,7 +345,9 @@ sub cover_art_url {
 # ---------------------------------------------------------------------------
 sub favorites_url {
 	my ($self, $type, $id) = @_;
-	return "glowsonic://$type/$id";
+	return undef unless defined $type && length $type && defined $id && length $id;
+	return 'glowsonic://' . URI::Escape::uri_escape_utf8($type) . '/'
+		. URI::Escape::uri_escape_utf8($id);
 }
 
 1;
