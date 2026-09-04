@@ -28,6 +28,12 @@ use URI::Escape ();
 my $log = Slim::Utils::Log::logger('plugin.glowsonic');
 my $prefs = preferences('plugin.glowsonic');
 
+# Reuse one API client for a given configuration. Creating a client generates a
+# new Subsonic auth salt, which used to make every cover-art URL unique. That
+# defeated LMS's image cache and could repeatedly exhaust memory on artwork-
+# capable players such as Squeezebox Radio.
+my ($prefs_api, $prefs_api_signature);
+
 $log->debug("GlowSonic ProtocolHandler.pm loaded") if $log->is_debug;
 
 sub register {
@@ -300,13 +306,27 @@ sub _api_client_from_prefs {
 
 	# Legacy glows:// URLs from older versions may still contain connection
 	# params. Prefer current prefs, but keep them as a fallback for old queues.
-	return Plugins::GlowSonic::API::Async->new(
+	my %config = (
 		server_url  => $prefs->get('server_url')  || $legacy_params->{server}     || '',
 		username    => $prefs->get('username')    || $legacy_params->{user}       || '',
 		password    => $prefs->get('password')    || $legacy_params->{pass}       || '',
 		api_version => $prefs->get('api_version') || $legacy_params->{apiversion} || '1.16.1',
 		auth_type   => $prefs->get('auth_type')   || 'token',
 	);
+
+	# Length-prefix each value so different configurations cannot produce the
+	# same cache key through delimiter characters in credentials or URLs.
+	my $signature = join '', map {
+		my $value = defined $config{$_} ? $config{$_} : '';
+		length($value) . ':' . $value;
+	} qw(server_url username password api_version auth_type);
+
+	if (!$prefs_api || !defined $prefs_api_signature || $signature ne $prefs_api_signature) {
+		$prefs_api = Plugins::GlowSonic::API::Async->new(%config);
+		$prefs_api_signature = $signature;
+	}
+
+	return $prefs_api;
 }
 
 sub _error_opml {
@@ -505,7 +525,14 @@ sub _cover_url {
 	my $api = $class->_api_client_from_prefs($params);
 	return '' unless $api && $api->is_configured;
 
-	return $api->cover_art_url($id, 300) || '';
+	# The Radio has only 64 MB RAM. Never feed its Now Playing view artwork
+	# larger than the historical 300 px default, but honor smaller configured
+	# sizes for especially memory-constrained setups.
+	my $size = $prefs->get('artwork_size') || 300;
+	$size = 300 unless $size =~ /^\d+$/ && $size > 0;
+	$size = 300 if $size > 300;
+
+	return $api->cover_art_url($id, $size) || '';
 }
 
 1;
